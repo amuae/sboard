@@ -1,0 +1,25 @@
+# 开启 URL 重写
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # 如果请求的文件或目录存在，直接访问
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    
+    # 否则重写到 index.php
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# 禁止访问敏感文件
+<FilesMatch "\.(env|json|lock|md|sql|yaml|yml)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# 设置字符集
+AddDefaultCharset UTF-8
+
+# 启用 gzip 压缩
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
