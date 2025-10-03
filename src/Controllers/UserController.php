@@ -48,7 +48,6 @@ class UserController extends BaseController
         $name = trim($this->request->post('name', ''));
         $uuid = trim($this->request->post('uuid', ''));
         $level = (int)$this->request->post('level', 1);
-        $dns_resolve = (int)$this->request->post('dns_resolve', 0);
         $expiry_date = trim($this->request->post('expiry_date', ''));
 
         if (empty($name) || empty($expiry_date)) {
@@ -63,15 +62,14 @@ class UserController extends BaseController
 
         $db = Database::getInstance();
         $stmt = $db->prepare('
-            INSERT INTO proxy_users (name, uuid, level, dns_resolve, expiry_date) 
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO proxy_users (name, uuid, level, expiry_date) 
+            VALUES (?, ?, ?, ?)
         ');
         
         $stmt->bindValue(1, $name, SQLITE3_TEXT);
         $stmt->bindValue(2, $uuid, SQLITE3_TEXT);
         $stmt->bindValue(3, $level, SQLITE3_INTEGER);
-        $stmt->bindValue(4, $dns_resolve, SQLITE3_INTEGER);
-        $stmt->bindValue(5, $expiry_date, SQLITE3_TEXT);
+        $stmt->bindValue(4, $expiry_date, SQLITE3_TEXT);
 
         if ($stmt->execute()) {
             $userId = $db->lastInsertRowID();
@@ -98,7 +96,6 @@ class UserController extends BaseController
         $name = trim($this->request->post('name', ''));
         $uuid = trim($this->request->post('uuid', ''));
         $level = (int)$this->request->post('level', 1);
-        $dns_resolve = (int)$this->request->post('dns_resolve', 0);
         $expiry_date = trim($this->request->post('expiry_date', ''));
         $enabled = $this->request->post('enabled', 1);
 
@@ -113,29 +110,27 @@ class UserController extends BaseController
             // 不更新UUID
             $stmt = $db->prepare('
                 UPDATE proxy_users 
-                SET name = ?, level = ?, dns_resolve = ?, expiry_date = ?, enabled = ?
+                SET name = ?, level = ?, expiry_date = ?, enabled = ?
                 WHERE id = ?
             ');
             $stmt->bindValue(1, $name, SQLITE3_TEXT);
             $stmt->bindValue(2, $level, SQLITE3_INTEGER);
-            $stmt->bindValue(3, $dns_resolve, SQLITE3_INTEGER);
-            $stmt->bindValue(4, $expiry_date, SQLITE3_TEXT);
-            $stmt->bindValue(5, $enabled, SQLITE3_INTEGER);
-            $stmt->bindValue(6, $id, SQLITE3_INTEGER);
+            $stmt->bindValue(3, $expiry_date, SQLITE3_TEXT);
+            $stmt->bindValue(4, $enabled, SQLITE3_INTEGER);
+            $stmt->bindValue(5, $id, SQLITE3_INTEGER);
         } else {
             // 更新UUID
             $stmt = $db->prepare('
                 UPDATE proxy_users 
-                SET name = ?, uuid = ?, level = ?, dns_resolve = ?, expiry_date = ?, enabled = ?
+                SET name = ?, uuid = ?, level = ?, expiry_date = ?, enabled = ?
                 WHERE id = ?
             ');
             $stmt->bindValue(1, $name, SQLITE3_TEXT);
             $stmt->bindValue(2, $uuid, SQLITE3_TEXT);
             $stmt->bindValue(3, $level, SQLITE3_INTEGER);
-            $stmt->bindValue(4, $dns_resolve, SQLITE3_INTEGER);
-            $stmt->bindValue(5, $expiry_date, SQLITE3_TEXT);
-            $stmt->bindValue(6, $enabled, SQLITE3_INTEGER);
-            $stmt->bindValue(7, $id, SQLITE3_INTEGER);
+            $stmt->bindValue(4, $expiry_date, SQLITE3_TEXT);
+            $stmt->bindValue(5, $enabled, SQLITE3_INTEGER);
+            $stmt->bindValue(6, $id, SQLITE3_INTEGER);
             
             // 更新节点关联中的UUID
             $this->updateNodeRelations($id, $uuid);
