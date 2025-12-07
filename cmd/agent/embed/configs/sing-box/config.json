@@ -1,0 +1,93 @@
+{
+  "log": {
+    "disabled": true
+  },
+  "inbounds": [
+    {
+      "type": "trojan",
+      "tag": "trojan",
+      "listen": "::",
+      "listen_port": 5505,
+      "users": [
+        {
+          "name": "das",
+          "password": "ff057152-e2b0-4a90-a6f6-d9cd0e796f09"
+        }
+      ],
+      "tls": {
+        "certificate_path": "/root/sing-box/server.crt",
+        "enabled": true,
+        "key_path": "/root/sing-box/server.key",
+        "server_name": "down.dingtalk.com"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless",
+      "listen": "::",
+      "listen_port": 7707,
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "name": "das",
+          "uuid": "ff057152-e2b0-4a90-a6f6-d9cd0e796f09"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "dingtalk.com",
+            "server_port": 443
+          },
+          "private_key": "IbNuIOUqjihOgib0MYC5fqiHnqLYMtjSIr1kVeKOwaw",
+          "short_id": [
+            "150f6838bd518c8d"
+          ]
+        },
+        "server_name": "down.dingtalk.com"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hy2",
+      "listen": "::",
+      "listen_port": 6606,
+      "users": [
+        {
+          "name": "das",
+          "password": "ff057152-e2b0-4a90-a6f6-d9cd0e796f09"
+        }
+      ],
+      "up_mbps": 100,
+      "down_mbps": 100,
+      "tls": {
+        "certificate_path": "/root/sing-box/server.crt",
+        "enabled": true,
+        "key_path": "/root/sing-box/server.key",
+        "server_name": "down.dingtalk.com"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss",
+      "listen": "::",
+      "listen_port": 9909,
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "NwrQy7u4V5v9p6uHqsz4EJ0Eut4yD5O7M//bQPbzce8=",
+      "users": [
+        {
+          "name": "das",
+          "password": "66663035373135322d653262302d3461"
+        }
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ]
+}

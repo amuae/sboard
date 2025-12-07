@@ -1,7 +1,7 @@
 # 构建产物
-sboard
-sboard-agent
-agent
+/sboard
+/sboard-agent
+/agent
 *.exe
 
 # 测试环境
@@ -20,6 +20,7 @@ data/
 # 前端
 web/node_modules/
 web/dist/
+cmd/sboard/web/
 
 # IDE
 .idea/
