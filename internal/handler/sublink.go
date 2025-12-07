@@ -641,24 +641,35 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 	}
 
 	outbound := SingBoxOutbound{
-		"tag":    tag,
-		"server": host,
-		"port":   port,
+		"tag":         tag,
+		"server":      host,
+		"server_port": port,
 	}
 
 	switch node.Protocol {
 	case "vmess":
 		outbound["type"] = "vmess"
 		outbound["uuid"] = user.UUID
+		if node.TlsEnabled {
+			outbound["tls"] = buildSingBoxTLS(node)
+		}
 
 	case "vless":
 		outbound["type"] = "vless"
 		outbound["uuid"] = user.UUID
-		outbound["flow"] = node.Flow
+		if node.Flow != "" {
+			outbound["flow"] = node.Flow
+		}
+		if node.TlsEnabled || node.RealityEnabled {
+			outbound["tls"] = buildSingBoxTLS(node)
+		}
 
 	case "trojan":
 		outbound["type"] = "trojan"
 		outbound["password"] = user.UUID
+		if node.TlsEnabled {
+			outbound["tls"] = buildSingBoxTLS(node)
+		}
 
 	case "shadowsocks":
 		outbound["type"] = "shadowsocks"
@@ -668,12 +679,48 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 	case "hysteria2":
 		outbound["type"] = "hysteria2"
 		outbound["password"] = user.UUID // 使用用户 UUID 作为密码
+		if node.TlsEnabled {
+			outbound["tls"] = buildSingBoxTLS(node)
+		}
 
 	default:
 		return nil
 	}
 
 	return outbound
+}
+
+// buildSingBoxTLS 构建 sing-box TLS 配置
+func buildSingBoxTLS(node *database.InboundNode) map[string]interface{} {
+	tls := map[string]interface{}{
+		"enabled":  true,
+		"insecure": true,
+	}
+
+	// 服务器名称
+	if node.ServerName != "" {
+		tls["server_name"] = node.ServerName
+	}
+
+	// Reality 配置
+	if node.RealityEnabled && node.RealityPubkey != "" {
+		if node.RealityServer != "" {
+			tls["server_name"] = node.RealityServer
+		}
+		tls["reality"] = map[string]interface{}{
+			"enabled":    true,
+			"public_key": node.RealityPubkey,
+			"short_id":   node.RealityShortId,
+		}
+	}
+
+	// uTLS 指纹
+	tls["utls"] = map[string]interface{}{
+		"enabled":     true,
+		"fingerprint": "chrome",
+	}
+
+	return tls
 }
 
 func generateV2RaySubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int) (string, error) {
