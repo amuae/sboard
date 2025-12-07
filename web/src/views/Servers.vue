@@ -39,10 +39,7 @@
             <div>
               <div class="server-title">{{ server.name }}</div>
               <div class="server-host">
-                <i class="bi bi-hdd"></i> {{ server.host || '等待 Agent 上报' }}
-              </div>
-              <div class="server-host" v-if="server.node_domain">
-                <i class="bi bi-globe"></i> {{ server.node_domain }}
+                <i class="bi bi-hdd"></i> {{ maskIP(server.host) || '等待 Agent 上报' }}
               </div>
             </div>
             <div class="d-flex flex-column align-items-end gap-1">
@@ -605,6 +602,26 @@ async function refreshStatus() {
   } catch {
     // 静默失败，不影响用户操作
   }
+}
+
+// 隐藏 IP 后三段，只显示第一段
+function maskIP(ip: string | undefined): string {
+  if (!ip) return ''
+  // 处理 IPv4
+  if (ip.includes('.')) {
+    const parts = ip.split('.')
+    if (parts.length === 4) {
+      return `${parts[0]}.*.*.*`
+    }
+  }
+  // 处理 IPv6
+  if (ip.includes(':')) {
+    const parts = ip.split(':')
+    if (parts.length >= 2) {
+      return `${parts[0]}:${parts[1]}:****`
+    }
+  }
+  return ip
 }
 
 // 格式化网速显示

@@ -391,7 +391,26 @@ func buildMihomoListener(node *database.InboundNode, users []NodeUser) *yaml.Nod
 
 	// TLS 配置
 	if node.TlsEnabled && node.Protocol != "shadowsocks" {
-		if node.CertPath != "" {
+		if node.RealityEnabled && node.RealityPrivkey != "" {
+			// Reality 配置 (mihomo 使用 reality-config)
+			realityConfig := &yaml.Node{Kind: yaml.MappingNode}
+			if node.RealityServer != "" {
+				addYamlField(realityConfig, "dest", node.RealityServer+":443")
+			}
+			addYamlField(realityConfig, "private-key", node.RealityPrivkey)
+			if node.RealityShortId != "" {
+				shortIdList := &yaml.Node{Kind: yaml.SequenceNode}
+				shortIdList.Content = append(shortIdList.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: node.RealityShortId})
+				addYamlNode(realityConfig, "short-id", shortIdList)
+			}
+			if node.ServerName != "" {
+				serverNames := &yaml.Node{Kind: yaml.SequenceNode}
+				serverNames.Content = append(serverNames.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: node.ServerName})
+				addYamlNode(realityConfig, "server-names", serverNames)
+			}
+			addYamlNode(result, "reality-config", realityConfig)
+		} else if node.CertPath != "" {
+			// 普通 TLS 证书配置
 			addYamlField(result, "certificate", "/root/mihomo/"+node.CertPath)
 			addYamlField(result, "private-key", "/root/mihomo/"+node.KeyPath)
 		}

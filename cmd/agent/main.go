@@ -687,15 +687,52 @@ func (a *Agent) handleRestart(msg *Message) (*Message, error) {
 	}, nil
 }
 
-// getLocalIP 获取本机公网 IP，优先通过外部 API，失败则使用本地网卡 IP
+// getLocalIP 获取本机公网 IP，优先使用网卡 IP，如果是内网则通过外部 API 获取
 func getLocalIP() string {
-	// 尝试通过外部 API 获取公网 IP
-	publicIP := getPublicIP()
+	// 主方案：从网卡获取 IP
+	localIP := getNetworkIP()
+	if localIP != "" && !isPrivateIP(localIP) {
+		// 网卡获取的是公网 IP，直接使用
+		return localIP
+	}
+
+	// 备选方案：网卡 IP 是内网，通过外部 API 获取公网 IP
+	publicIP := getPublicIPFromAPI()
 	if publicIP != "" {
 		return publicIP
 	}
 
-	// 回退到本地网卡 IP
+	// 都失败了，返回网卡 IP（即使是内网）
+	return localIP
+}
+
+// isPrivateIP 判断是否为内网 IP
+func isPrivateIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	// 检查私有地址段
+	privateBlocks := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"100.64.0.0/10",  // CGNAT
+		"169.254.0.0/16", // Link-local
+	}
+
+	for _, block := range privateBlocks {
+		_, cidr, _ := net.ParseCIDR(block)
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// getNetworkIP 从网卡获取 IP 地址
+func getNetworkIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return ""
@@ -711,14 +748,12 @@ func getLocalIP() string {
 	return ""
 }
 
-// getPublicIP 通过外部 API 获取公网 IP
-func getPublicIP() string {
-	// 优先使用国内 API
+// getPublicIPFromAPI 通过外部 API 获取公网 IP
+func getPublicIPFromAPI() string {
+	// 使用国内 API
 	apis := []string{
 		"https://4.ipw.cn",
 		"https://6.ipw.cn",
-		"https://api.ipify.org",
-		"https://ifconfig.me/ip",
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
