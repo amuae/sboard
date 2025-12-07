@@ -588,26 +588,29 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("server", host)
 		add("port", port)
 		add("uuid", user.UUID)
-		if node.Flow != "" {
-			add("flow", node.Flow)
-		}
 		add("udp", true)
-		if node.TlsEnabled && node.ServerName != "" {
+		// TLS 和 Reality 配置
+		if node.TlsEnabled || node.RealityEnabled {
 			add("tls", true)
-			add("servername", node.ServerName)
+			// servername: Reality 优先使用 RealityServer，否则使用 ServerName
+			if node.RealityEnabled && node.RealityServer != "" {
+				add("servername", node.RealityServer)
+			} else if node.ServerName != "" {
+				add("servername", node.ServerName)
+			}
 			add("skip-cert-verify", true)
 			add("client-fingerprint", "chrome")
-		}
-		if node.RealityEnabled && node.RealityPubkey != "" {
-			add("tls", true)
-			add("client-fingerprint", "chrome")
-			if node.RealityServer != "" {
-				add("servername", node.RealityServer)
+			// Reality 配置
+			if node.RealityEnabled && node.RealityPubkey != "" {
+				add("reality-opts", map[string]interface{}{
+					"public-key": node.RealityPubkey,
+					"short-id":   node.RealityShortId,
+				})
 			}
-			add("reality-opts", map[string]interface{}{
-				"public-key": node.RealityPubkey,
-				"short-id":   node.RealityShortId,
-			})
+		}
+		// flow 放在最后
+		if node.Flow != "" {
+			add("flow", node.Flow)
 		}
 
 	case "trojan":
