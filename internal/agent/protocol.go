@@ -48,13 +48,15 @@ type RegisterData struct {
 
 // HeartbeatData 心跳数据
 type HeartbeatData struct {
-	Uptime      int64   `json:"uptime"`       // 运行时长(秒)
-	CPUPercent  float64 `json:"cpu_percent"`  // CPU 使用率
-	MemPercent  float64 `json:"mem_percent"`  // 内存使用率
-	DiskPercent float64 `json:"disk_percent"` // 磁盘使用率
-	NetIn       int64   `json:"net_in"`       // 网络入流量(bytes)
-	NetOut      int64   `json:"net_out"`      // 网络出流量(bytes)
-	Connections int     `json:"connections"`  // 当前连接数
+	Uptime         int64   `json:"uptime"`           // 运行时长(秒)
+	CPUPercent     float64 `json:"cpu_percent"`      // CPU 使用率
+	MemPercent     float64 `json:"mem_percent"`      // 内存使用率
+	DiskPercent    float64 `json:"disk_percent"`     // 磁盘使用率
+	NetIn          int64   `json:"net_in"`           // 网络入流量速率(bytes/s)
+	NetOut         int64   `json:"net_out"`          // 网络出流量速率(bytes/s)
+	NetInTransfer  uint64  `json:"net_in_transfer"`  // 系统启动以来的入流量总量(bytes)
+	NetOutTransfer uint64  `json:"net_out_transfer"` // 系统启动以来的出流量总量(bytes)
+	Connections    int     `json:"connections"`      // 当前连接数
 }
 
 // StatusData 状态数据

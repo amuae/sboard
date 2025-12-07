@@ -145,19 +145,39 @@ func (h *AgentHub) handleHeartbeat(conn *AgentConnection, msg *agent.Message) {
 
 	// 更新数据库
 	if conn.ServerID > 0 {
-		// 累加月度流量 (net_in/net_out 是 bytes/s，心跳间隔约 5 秒)
-		database.DB.Model(&database.Server{}).Where("id = ?", conn.ServerID).Updates(map[string]interface{}{
-			"last_heartbeat": time.Now(),
-			"cpu_usage":      data.CPUPercent,
-			"mem_usage":      data.MemPercent,
-			"disk_usage":     data.DiskPercent,
-			"net_in":         data.NetIn,
-			"net_out":        data.NetOut,
-		})
-		// 累加月度流量 (心跳间隔 5 秒)
-		database.DB.Model(&database.Server{}).Where("id = ?", conn.ServerID).
-			UpdateColumn("monthly_in", gorm.Expr("monthly_in + ?", data.NetIn*5)).
-			UpdateColumn("monthly_out", gorm.Expr("monthly_out + ?", data.NetOut*5))
+		// 先获取上次的 transfer 值
+		var server database.Server
+		if err := database.DB.Select("last_net_in_transfer", "last_net_out_transfer").
+			Where("id = ?", conn.ServerID).First(&server).Error; err == nil {
+
+			// 计算差值（仅当新值大于旧值时累加，避免服务器重启导致负值）
+			var deltaIn, deltaOut uint64
+			if data.NetInTransfer > server.LastNetInTransfer && server.LastNetInTransfer > 0 {
+				deltaIn = data.NetInTransfer - server.LastNetInTransfer
+			}
+			if data.NetOutTransfer > server.LastNetOutTransfer && server.LastNetOutTransfer > 0 {
+				deltaOut = data.NetOutTransfer - server.LastNetOutTransfer
+			}
+
+			// 更新实时状态和上次 transfer 值
+			database.DB.Model(&database.Server{}).Where("id = ?", conn.ServerID).Updates(map[string]interface{}{
+				"last_heartbeat":        time.Now(),
+				"cpu_usage":             data.CPUPercent,
+				"mem_usage":             data.MemPercent,
+				"disk_usage":            data.DiskPercent,
+				"net_in":                data.NetIn,
+				"net_out":               data.NetOut,
+				"last_net_in_transfer":  data.NetInTransfer,
+				"last_net_out_transfer": data.NetOutTransfer,
+			})
+
+			// 累加月度流量（使用精确差值）
+			if deltaIn > 0 || deltaOut > 0 {
+				database.DB.Model(&database.Server{}).Where("id = ?", conn.ServerID).
+					UpdateColumn("monthly_in", gorm.Expr("monthly_in + ?", deltaIn)).
+					UpdateColumn("monthly_out", gorm.Expr("monthly_out + ?", deltaOut))
+			}
+		}
 	}
 }
 

@@ -204,6 +204,10 @@ type Server struct {
 	MonthlyOut   int64      `gorm:"default:0" json:"monthly_out"` // 月度上行流量 (bytes)
 	TrafficReset *time.Time `json:"traffic_reset"`                // 上次流量重置时间`
 
+	// 上次收到的流量总量 (用于差值计算)
+	LastNetInTransfer  uint64 `gorm:"default:0" json:"-"` // 上次心跳的入流量总量
+	LastNetOutTransfer uint64 `gorm:"default:0" json:"-"` // 上次心跳的出流量总量
+
 	// 其他
 	Notes        string     `gorm:"type:text" json:"notes"`
 	LastDeployAt *time.Time `json:"last_deploy_at"`

@@ -313,7 +313,11 @@ func (a *Agent) sendHeartbeat() error {
 			strings.HasPrefix(name, "tun") ||
 			strings.HasPrefix(name, "tap") ||
 			strings.HasPrefix(name, "Meta") || // mihomo TUN
-			strings.HasPrefix(name, "utun") { // macOS TUN
+			strings.HasPrefix(name, "utun") || // macOS TUN
+			strings.HasPrefix(name, "eth-iop") || // sing-box TUN
+			strings.HasPrefix(name, "wg") || // WireGuard
+			strings.Contains(name, "tun") || // 其他 TUN 设备
+			strings.Contains(name, "sing") { // sing-box 相关
 			continue
 		}
 		totalBytesRecv += io.BytesRecv
@@ -333,13 +337,15 @@ func (a *Agent) sendHeartbeat() error {
 	a.lastNetTime = now
 
 	data := map[string]interface{}{
-		"uptime":       int64(time.Since(a.startTime).Seconds()),
-		"cpu_percent":  cpuPct,
-		"mem_percent":  memInfo.UsedPercent,
-		"disk_percent": diskInfo.UsedPercent,
-		"net_in":       netInSpeed,  // bytes/s
-		"net_out":      netOutSpeed, // bytes/s
-		"connections":  0,
+		"uptime":           int64(time.Since(a.startTime).Seconds()),
+		"cpu_percent":      cpuPct,
+		"mem_percent":      memInfo.UsedPercent,
+		"disk_percent":     diskInfo.UsedPercent,
+		"net_in":           netInSpeed,     // bytes/s (实时速率)
+		"net_out":          netOutSpeed,    // bytes/s (实时速率)
+		"net_in_transfer":  totalBytesRecv, // bytes (系统启动以来的总流量)
+		"net_out_transfer": totalBytesSent, // bytes (系统启动以来的总流量)
+		"connections":      0,
 	}
 
 	rawData, _ := json.Marshal(data)
