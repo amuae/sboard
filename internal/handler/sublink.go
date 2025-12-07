@@ -492,8 +492,7 @@ func generateMihomoSubscription(servers []ServerWithNodes, nodeConfigs map[uint]
 }
 
 func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *database.ServerNodeConfig, user *database.ProxyUser, lv int) MihomoProxy {
-	nodeName := getNodeName(server, user.Level, lv)
-	name := fmt.Sprintf("%s - %s", nodeName, node.Tag)
+	name := getNodeName(server, user.Level, lv)
 	host := server.Host
 
 	// 如果服务器设置了节点域名，优先使用
@@ -614,8 +613,7 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 }
 
 func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, nc *database.ServerNodeConfig, user *database.ProxyUser, lv int) SingBoxOutbound {
-	nodeName := getNodeName(server, user.Level, lv)
-	tag := fmt.Sprintf("%s - %s", nodeName, node.Tag)
+	tag := getNodeName(server, user.Level, lv)
 	host := server.Host
 
 	if server.NodeDomain != "" {
