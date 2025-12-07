@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed all:configs all:logs
+//go:embed all:configs
 var StorageFS embed.FS
 
 // ExtractStorage 将嵌入的 storage 目录释放到运行目录
