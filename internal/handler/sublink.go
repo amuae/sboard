@@ -527,13 +527,18 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 	case "vless":
 		proxy["type"] = "vless"
 		proxy["uuid"] = user.UUID
-		proxy["flow"] = node.Flow
+		proxy["udp"] = true
+		if node.Flow != "" {
+			proxy["flow"] = node.Flow
+		}
 		if node.TlsEnabled && node.ServerName != "" {
 			proxy["tls"] = true
 			proxy["servername"] = node.ServerName
+			proxy["skip-cert-verify"] = true
 		}
 		if node.RealityEnabled && node.RealityPubkey != "" {
 			proxy["tls"] = true
+			proxy["client-fingerprint"] = "chrome"
 			proxy["reality-opts"] = map[string]interface{}{
 				"public-key": node.RealityPubkey,
 				"short-id":   node.RealityShortId,
