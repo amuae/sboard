@@ -1,0 +1,10 @@
+[Unit] 
+Description=Sing-Box Service 
+After=network.target 
+[Service] 
+User=root 
+WorkingDirectory=/root/sing-box 
+ExecStart=/root/sing-box/sing-box run 
+Restart=on-failure 
+[Install]
+WantedBy=multi-user.target
