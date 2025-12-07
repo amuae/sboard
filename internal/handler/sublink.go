@@ -511,6 +511,7 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		"name":   name,
 		"server": host,
 		"port":   port,
+		"udp":    true,
 	}
 
 	switch node.Protocol {
@@ -522,12 +523,13 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		if node.TlsEnabled && node.ServerName != "" {
 			proxy["tls"] = true
 			proxy["servername"] = node.ServerName
+			proxy["skip-cert-verify"] = true
+			proxy["client-fingerprint"] = "chrome"
 		}
 
 	case "vless":
 		proxy["type"] = "vless"
 		proxy["uuid"] = user.UUID
-		proxy["udp"] = true
 		if node.Flow != "" {
 			proxy["flow"] = node.Flow
 		}
@@ -535,6 +537,7 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 			proxy["tls"] = true
 			proxy["servername"] = node.ServerName
 			proxy["skip-cert-verify"] = true
+			proxy["client-fingerprint"] = "chrome"
 		}
 		if node.RealityEnabled && node.RealityPubkey != "" {
 			proxy["tls"] = true
@@ -553,6 +556,8 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		proxy["password"] = user.UUID
 		if node.TlsEnabled && node.ServerName != "" {
 			proxy["sni"] = node.ServerName
+			proxy["skip-cert-verify"] = true
+			proxy["client-fingerprint"] = "chrome"
 		}
 
 	case "anytls":
@@ -560,6 +565,8 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		proxy["password"] = user.UUID
 		if node.TlsEnabled && node.ServerName != "" {
 			proxy["sni"] = node.ServerName
+			proxy["skip-cert-verify"] = true
+			proxy["client-fingerprint"] = "chrome"
 		}
 
 	case "shadowsocks":
@@ -572,6 +579,8 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		proxy["password"] = user.UUID // 使用用户 UUID 作为密码
 		if node.TlsEnabled && node.ServerName != "" {
 			proxy["sni"] = node.ServerName
+			proxy["skip-cert-verify"] = true
+			proxy["client-fingerprint"] = "chrome"
 		}
 		if node.Hy2Obfs != "" {
 			proxy["obfs"] = node.Hy2Obfs
