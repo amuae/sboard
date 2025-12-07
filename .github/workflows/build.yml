@@ -1,0 +1,306 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (如 v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      release:
+        description: '是否发布 Release'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  GO_VERSION: '1.21'
+  NODE_VERSION: '18'
+
+jobs:
+  build-web:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: web
+        run: npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 1
+
+  build-sboard:
+    name: Build SBoard (${{ matrix.goos }}-${{ matrix.goarch }})
+    needs: build-web
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: arm
+            goarm: 7
+          - goos: linux
+            goarch: 386
+          # Windows
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: windows
+            goarch: 386
+          # macOS
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          # FreeBSD
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build sboard
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          
+          if [ "$GOOS" = "windows" ]; then
+            go build -ldflags "${LDFLAGS}" -o sboard.exe ./cmd/sboard
+          else
+            go build -ldflags "${LDFLAGS}" -o sboard ./cmd/sboard
+          fi
+
+      - name: Package
+        run: |
+          PLATFORM="${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [ -n "${{ matrix.goarm }}" ]; then
+            PLATFORM="${{ matrix.goos }}_armv${{ matrix.goarm }}"
+          fi
+          
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -j "sboard_${PLATFORM}.zip" sboard.exe
+          else
+            zip -j "sboard_${PLATFORM}.zip" sboard
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sboard_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.goarm && format('v{0}', matrix.goarm) || '' }}
+          path: sboard_*.zip
+          retention-days: 5
+
+  build-agent:
+    name: Build Agent (${{ matrix.goos }}-${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: arm
+            goarm: 7
+          - goos: linux
+            goarch: 386
+          - goos: linux
+            goarch: mips
+          - goos: linux
+            goarch: mipsle
+          - goos: linux
+            goarch: mips64
+          - goos: linux
+            goarch: mips64le
+          - goos: linux
+            goarch: riscv64
+          - goos: linux
+            goarch: s390x
+          # Windows
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: windows
+            goarch: 386
+          # macOS
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          # FreeBSD
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: arm64
+          - goos: freebsd
+            goarch: arm
+          - goos: freebsd
+            goarch: 386
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build agent
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          
+          if [ "$GOOS" = "windows" ]; then
+            go build -ldflags "${LDFLAGS}" -o sboard-agent.exe ./cmd/agent
+          else
+            go build -ldflags "${LDFLAGS}" -o sboard-agent ./cmd/agent
+          fi
+
+      - name: Package
+        run: |
+          PLATFORM="${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [ -n "${{ matrix.goarm }}" ]; then
+            PLATFORM="${{ matrix.goos }}_armv${{ matrix.goarm }}"
+          fi
+          
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -j "sboard-agent_${PLATFORM}.zip" sboard-agent.exe
+          else
+            zip -j "sboard-agent_${PLATFORM}.zip" sboard-agent
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sboard-agent_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.goarm && format('v{0}', matrix.goarm) || '' }}
+          path: sboard-agent_*.zip
+          retention-days: 5
+
+  release:
+    name: Create Release
+    needs: [build-sboard, build-agent]
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.release == 'true' }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: sboard*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          sha256sum *.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/*.zip
+            artifacts/checksums.txt
+          body: |
+            ## SBoard ${{ github.event.inputs.version }}
+            
+            ### 下载
+            
+            **面板 (sboard)**
+            | 平台 | 架构 | 下载 |
+            |------|------|------|
+            | Linux | amd64 | [sboard_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_amd64.zip) |
+            | Linux | arm64 | [sboard_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_arm64.zip) |
+            | Windows | amd64 | [sboard_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_amd64.zip) |
+            | macOS | amd64 | [sboard_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_amd64.zip) |
+            | macOS | arm64 | [sboard_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_arm64.zip) |
+            
+            **Agent (sboard-agent)**
+            | 平台 | 架构 | 下载 |
+            |------|------|------|
+            | Linux | amd64 | [sboard-agent_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_amd64.zip) |
+            | Linux | arm64 | [sboard-agent_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_arm64.zip) |
+            | Windows | amd64 | [sboard-agent_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_amd64.zip) |
+            | macOS | amd64 | [sboard-agent_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_amd64.zip) |
+            | macOS | arm64 | [sboard-agent_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_arm64.zip) |
+            
+            ### 安装
+            
+            ```bash
+            # 一键安装面板
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install-sboard.sh | bash
+            
+            # 安装 Agent (从面板获取脚本)
+            curl -fsSL https://your-panel.com/install-agent.sh | bash -s -- --token <token>
+            ```
+            
+            ### 校验
+            
+            请下载 `checksums.txt` 验证文件完整性。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
