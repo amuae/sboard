@@ -52,6 +52,7 @@ jobs:
     needs: build-web
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux
@@ -90,7 +91,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: web-dist
-          path: web/dist
+          path: cmd/sboard/web
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -138,6 +139,7 @@ jobs:
     name: Build Agent (${{ matrix.goos }}-${{ matrix.goarch }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux
