@@ -223,7 +223,59 @@ func (s *Server) handleSublink(c *gin.Context) {
 
 // ========== Mihomo/Clash 格式 ==========
 
-type MihomoProxy map[string]interface{}
+// MihomoProxy 使用有序 slice 存储键值对
+type MihomoProxy []MihomoProxyField
+
+type MihomoProxyField struct {
+	Key   string
+	Value interface{}
+}
+
+// GetName 获取代理名称
+func (p MihomoProxy) GetName() string {
+	for _, field := range p {
+		if field.Key == "name" {
+			if name, ok := field.Value.(string); ok {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// MarshalYAML 自定义 YAML 序列化以保持字段顺序
+func (p MihomoProxy) MarshalYAML() (interface{}, error) {
+	node := &yaml.Node{
+		Kind: yaml.MappingNode,
+	}
+	for _, field := range p {
+		keyNode := &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Value: field.Key,
+		}
+		var valueNode *yaml.Node
+		switch v := field.Value.(type) {
+		case string:
+			valueNode = &yaml.Node{Kind: yaml.ScalarNode, Value: v}
+		case int:
+			valueNode = &yaml.Node{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%d", v), Tag: "!!int"}
+		case bool:
+			valueNode = &yaml.Node{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%t", v), Tag: "!!bool"}
+		case map[string]interface{}:
+			valueNode = &yaml.Node{Kind: yaml.MappingNode}
+			for k, val := range v {
+				valueNode.Content = append(valueNode.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Value: k},
+					&yaml.Node{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%v", val)},
+				)
+			}
+		default:
+			valueNode = &yaml.Node{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%v", v)}
+		}
+		node.Content = append(node.Content, keyNode, valueNode)
+	}
+	return node, nil
+}
 
 type MihomoGroup struct {
 	Name    string   `yaml:"name"`
@@ -254,7 +306,7 @@ func generateMihomoSubscription(servers []ServerWithNodes, nodeConfigs map[uint]
 			proxy := buildMihomoProxy(&swn.Server, &node, nc, user, lv)
 			if proxy != nil {
 				proxies = append(proxies, proxy)
-				proxyName := proxy["name"].(string)
+				proxyName := proxy.GetName()
 
 				// 使用 GeoIP 判断节点是否为国内
 				nodeIP := getNodeEffectiveIP(&swn.Server, &node, nc)
@@ -507,84 +559,107 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		port = nc.ForwardPort
 	}
 
-	proxy := MihomoProxy{
-		"name":   name,
-		"server": host,
-		"port":   port,
-		"udp":    true,
+	// 辅助函数：添加字段
+	var proxy MihomoProxy
+	add := func(key string, value interface{}) {
+		proxy = append(proxy, MihomoProxyField{Key: key, Value: value})
 	}
 
 	switch node.Protocol {
 	case "vmess":
-		proxy["type"] = "vmess"
-		proxy["uuid"] = user.UUID
-		proxy["alterId"] = 0
-		proxy["cipher"] = "auto"
+		add("type", "vmess")
+		add("name", name)
+		add("server", host)
+		add("port", port)
+		add("uuid", user.UUID)
+		add("alterId", 0)
+		add("cipher", "auto")
+		add("udp", true)
 		if node.TlsEnabled && node.ServerName != "" {
-			proxy["tls"] = true
-			proxy["servername"] = node.ServerName
-			proxy["skip-cert-verify"] = true
-			proxy["client-fingerprint"] = "chrome"
+			add("tls", true)
+			add("servername", node.ServerName)
+			add("skip-cert-verify", true)
+			add("client-fingerprint", "chrome")
 		}
 
 	case "vless":
-		proxy["type"] = "vless"
-		proxy["uuid"] = user.UUID
+		add("type", "vless")
+		add("name", name)
+		add("server", host)
+		add("port", port)
+		add("uuid", user.UUID)
 		if node.Flow != "" {
-			proxy["flow"] = node.Flow
+			add("flow", node.Flow)
 		}
+		add("udp", true)
 		if node.TlsEnabled && node.ServerName != "" {
-			proxy["tls"] = true
-			proxy["servername"] = node.ServerName
-			proxy["skip-cert-verify"] = true
-			proxy["client-fingerprint"] = "chrome"
+			add("tls", true)
+			add("servername", node.ServerName)
+			add("skip-cert-verify", true)
+			add("client-fingerprint", "chrome")
 		}
 		if node.RealityEnabled && node.RealityPubkey != "" {
-			proxy["tls"] = true
-			proxy["client-fingerprint"] = "chrome"
-			proxy["reality-opts"] = map[string]interface{}{
+			add("tls", true)
+			add("client-fingerprint", "chrome")
+			if node.RealityServer != "" {
+				add("servername", node.RealityServer)
+			}
+			add("reality-opts", map[string]interface{}{
 				"public-key": node.RealityPubkey,
 				"short-id":   node.RealityShortId,
-			}
-			if node.RealityServer != "" {
-				proxy["servername"] = node.RealityServer
-			}
+			})
 		}
 
 	case "trojan":
-		proxy["type"] = "trojan"
-		proxy["password"] = user.UUID
+		add("type", "trojan")
+		add("name", name)
+		add("server", host)
+		add("port", port)
+		add("password", user.UUID)
+		add("udp", true)
 		if node.TlsEnabled && node.ServerName != "" {
-			proxy["sni"] = node.ServerName
-			proxy["skip-cert-verify"] = true
-			proxy["client-fingerprint"] = "chrome"
+			add("sni", node.ServerName)
+			add("skip-cert-verify", true)
+			add("client-fingerprint", "chrome")
 		}
 
 	case "anytls":
-		proxy["type"] = "anytls"
-		proxy["password"] = user.UUID
+		add("type", "anytls")
+		add("name", name)
+		add("server", host)
+		add("port", port)
+		add("password", user.UUID)
+		add("udp", true)
 		if node.TlsEnabled && node.ServerName != "" {
-			proxy["sni"] = node.ServerName
-			proxy["skip-cert-verify"] = true
-			proxy["client-fingerprint"] = "chrome"
+			add("sni", node.ServerName)
+			add("skip-cert-verify", true)
+			add("client-fingerprint", "chrome")
 		}
 
 	case "shadowsocks":
-		proxy["type"] = "ss"
-		proxy["cipher"] = node.SsMethod
-		proxy["password"] = node.SsPassword
+		add("type", "ss")
+		add("name", name)
+		add("server", host)
+		add("port", port)
+		add("cipher", node.SsMethod)
+		add("password", node.SsPassword)
+		add("udp", true)
 
 	case "hysteria2":
-		proxy["type"] = "hysteria2"
-		proxy["password"] = user.UUID // 使用用户 UUID 作为密码
+		add("type", "hysteria2")
+		add("name", name)
+		add("server", host)
+		add("port", port)
+		add("password", user.UUID)
+		add("udp", true)
 		if node.TlsEnabled && node.ServerName != "" {
-			proxy["sni"] = node.ServerName
-			proxy["skip-cert-verify"] = true
-			proxy["client-fingerprint"] = "chrome"
+			add("sni", node.ServerName)
+			add("skip-cert-verify", true)
+			add("client-fingerprint", "chrome")
 		}
 		if node.Hy2Obfs != "" {
-			proxy["obfs"] = node.Hy2Obfs
-			proxy["obfs-password"] = node.Hy2ObfsPassword
+			add("obfs", node.Hy2Obfs)
+			add("obfs-password", node.Hy2ObfsPassword)
 		}
 
 	default:
