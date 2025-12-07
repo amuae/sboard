@@ -20,7 +20,9 @@ data/
 # 前端
 web/node_modules/
 web/dist/
-cmd/sboard/web/
+cmd/sboard/web/assets/
+!cmd/sboard/web/index.html
+!cmd/sboard/web/.gitkeep
 
 # IDE
 .idea/
