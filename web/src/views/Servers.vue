@@ -712,12 +712,17 @@ async function saveServer() {
     if (isEditing.value) {
       await updateServer(formData.value.id, data)
       showToast('success', '成功', '服务器已更新')
+      serverModal?.hide()
     } else {
-      await createServer(data)
-      showToast('success', '成功', '服务器已添加，请复制部署命令到目标服务器执行')
+      const res = await createServer(data)
+      // 创建成功后，切换到编辑模式，显示部署命令
+      const newServer = res.data.data
+      formData.value.id = newServer.id
+      formData.value.agent_token = newServer.agent_token
+      isEditing.value = true
+      showToast('success', '成功', '服务器已添加，请复制下方的部署命令')
     }
     
-    serverModal?.hide()
     await loadData()
   } catch (error: any) {
     showToast('error', '错误', error.response?.data?.error || '保存失败')
