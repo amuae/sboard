@@ -68,13 +68,11 @@ jobs:
             goarm: 7
           - goos: linux
             goarch: 386
-          # Windows
+          # Windows (386 不支持 modernc.org/sqlite)
           - goos: windows
             goarch: amd64
           - goos: windows
             goarch: arm64
-          - goos: windows
-            goarch: 386
           # macOS
           - goos: darwin
             goarch: amd64
