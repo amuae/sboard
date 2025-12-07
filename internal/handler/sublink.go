@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,6 +15,46 @@ import (
 	"github.com/sboard-go/sboard/internal/database"
 	"gopkg.in/yaml.v3"
 )
+
+// resolveDomain 根据 DnsResolve 策略解析域名
+// dnsResolve: none (不解析，返回原域名), ipv4 (解析为 IPv4), ipv6 (解析为 IPv6)
+func resolveDomain(domain string, dnsResolve string) string {
+	if dnsResolve == "none" || dnsResolve == "" {
+		return domain
+	}
+
+	// 如果已经是 IP 地址，直接返回
+	if ip := net.ParseIP(domain); ip != nil {
+		return domain
+	}
+
+	var ips []net.IP
+	var err error
+
+	switch dnsResolve {
+	case "ipv4":
+		ips, err = net.LookupIP(domain)
+		if err == nil {
+			for _, ip := range ips {
+				if ipv4 := ip.To4(); ipv4 != nil {
+					return ipv4.String()
+				}
+			}
+		}
+	case "ipv6":
+		ips, err = net.LookupIP(domain)
+		if err == nil {
+			for _, ip := range ips {
+				if ip.To4() == nil && ip.To16() != nil {
+					return ip.String()
+				}
+			}
+		}
+	}
+
+	// 解析失败，返回原域名
+	return domain
+}
 
 // ServerWithNodes 服务器及其节点
 type ServerWithNodes struct {
@@ -559,6 +600,9 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		port = nc.ForwardPort
 	}
 
+	// 根据服务器 DNS 解析策略解析域名
+	host = resolveDomain(host, server.DnsResolve)
+
 	// 辅助函数：添加字段
 	var proxy MihomoProxy
 	add := func(key string, value interface{}) {
@@ -716,6 +760,9 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 		port = nc.ForwardPort
 	}
 
+	// 根据服务器 DNS 解析策略解析域名
+	host = resolveDomain(host, server.DnsResolve)
+
 	outbound := SingBoxOutbound{
 		"tag":         tag,
 		"server":      host,
@@ -837,6 +884,9 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 		host = nc.ForwardHost
 		port = nc.ForwardPort
 	}
+
+	// 根据服务器 DNS 解析策略解析域名
+	host = resolveDomain(host, server.DnsResolve)
 
 	switch node.Protocol {
 	case "vmess":
