@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# SBoard Go 版本一键安装脚本
-# 支持: Debian 10+, Ubuntu 18.04+, CentOS 7+
+# SBoard 面板一键安装脚本
+# 支持: Linux (amd64, arm64, armv7, 386), macOS (amd64, arm64), FreeBSD (amd64, arm64)
 # 用法: curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 
 set -e
@@ -16,7 +16,6 @@ NC='\033[0m' # No Color
 # 配置
 GITHUB_REPO="amuae/sboard"
 INSTALL_DIR="/opt/sboard"
-CONFIG_DIR="/etc/sboard"
 DATA_DIR="/var/lib/sboard"
 SERVICE_NAME="sboard"
 BINARY_NAME="sboard"
@@ -46,65 +45,82 @@ check_root() {
     fi
 }
 
-# 检测系统
+# 检测操作系统
 detect_os() {
-    if [[ -f /etc/os-release ]]; then
-        . /etc/os-release
-        OS=$ID
-        VERSION=$VERSION_ID
-    elif [[ -f /etc/redhat-release ]]; then
-        OS="centos"
-    else
-        error "不支持的操作系统"
-    fi
-    
-    info "检测到系统: $OS $VERSION"
+    OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "$OS_TYPE" in
+        linux)
+            OS="linux"
+            ;;
+        darwin)
+            OS="darwin"
+            ;;
+        freebsd)
+            OS="freebsd"
+            ;;
+        *)
+            error "不支持的操作系统: $OS_TYPE"
+            ;;
+    esac
+    info "检测到操作系统: $OS"
 }
 
 # 检测架构
 detect_arch() {
-    ARCH=$(uname -m)
-    case $ARCH in
-        x86_64)
+    ARCH_TYPE=$(uname -m)
+    case "$ARCH_TYPE" in
+        x86_64|amd64)
             ARCH="amd64"
             ;;
-        aarch64)
+        aarch64|arm64)
             ARCH="arm64"
             ;;
-        armv7l)
+        armv7l|armv7)
             ARCH="armv7"
             ;;
+        i386|i686)
+            ARCH="386"
+            ;;
         *)
-            error "不支持的架构: $ARCH"
+            error "不支持的架构: $ARCH_TYPE"
             ;;
     esac
     info "检测到架构: $ARCH"
 }
 
-# 安装依赖
+# 检测包管理器并安装依赖
 install_deps() {
-    info "安装依赖..."
-    case $OS in
-        ubuntu|debian)
-            apt-get update -qq
-            apt-get install -y -qq curl wget tar
-            ;;
-        centos|rhel|fedora)
-            yum install -y -q curl wget tar
-            ;;
-        *)
-            warning "无法自动安装依赖，请手动安装: curl wget tar"
-            ;;
-    esac
+    info "检查依赖..."
+    
+    # 检查必要的命令
+    for cmd in curl unzip; do
+        if ! command -v $cmd &> /dev/null; then
+            info "安装 $cmd..."
+            if command -v apt-get &> /dev/null; then
+                apt-get update -qq && apt-get install -y -qq $cmd
+            elif command -v yum &> /dev/null; then
+                yum install -y -q $cmd
+            elif command -v dnf &> /dev/null; then
+                dnf install -y -q $cmd
+            elif command -v pacman &> /dev/null; then
+                pacman -S --noconfirm $cmd
+            elif command -v apk &> /dev/null; then
+                apk add --no-cache $cmd
+            elif command -v brew &> /dev/null; then
+                brew install $cmd
+            else
+                error "无法安装 $cmd，请手动安装"
+            fi
+        fi
+    done
 }
 
 # 获取最新版本
 get_latest_version() {
     info "获取最新版本..."
-    LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [[ -z "$LATEST_VERSION" ]]; then
-        LATEST_VERSION="v3.0.0"
-        warning "无法获取最新版本，使用默认版本: $LATEST_VERSION"
+        error "无法获取最新版本，请检查网络连接"
     fi
     info "最新版本: $LATEST_VERSION"
 }
@@ -113,122 +129,83 @@ get_latest_version() {
 download_and_install() {
     info "下载 SBoard..."
     
-    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${BINARY_NAME}-linux-${ARCH}.tar.gz"
+    # 构建下载 URL
+    DOWNLOAD_FILE="${BINARY_NAME}_${OS}_${ARCH}.zip"
+    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${DOWNLOAD_FILE}"
+    
+    info "下载地址: $DOWNLOAD_URL"
     
     # 创建临时目录
     TMP_DIR=$(mktemp -d)
     cd "$TMP_DIR"
     
     # 下载
-    if ! curl -fsSL "$DOWNLOAD_URL" -o sboard.tar.gz; then
-        # 如果下载失败，尝试从源码构建
-        warning "下载失败，尝试从源码构建..."
-        build_from_source
-        return
+    if ! curl -fsSL "$DOWNLOAD_URL" -o "${DOWNLOAD_FILE}"; then
+        rm -rf "$TMP_DIR"
+        error "下载失败，请检查版本 ${LATEST_VERSION} 是否存在 ${OS}_${ARCH} 构建"
     fi
     
     # 解压
-    tar -xzf sboard.tar.gz
+    unzip -q "${DOWNLOAD_FILE}"
     
     # 创建目录
     mkdir -p "$INSTALL_DIR"
-    mkdir -p "$CONFIG_DIR"
     mkdir -p "$DATA_DIR"
     
     # 安装二进制文件
-    mv "${BINARY_NAME}" "${INSTALL_DIR}/"
-    chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
-    
-    # 清理
-    cd /
-    rm -rf "$TMP_DIR"
-    
-    success "SBoard 安装完成"
-}
-
-# 从源码构建
-build_from_source() {
-    info "从源码构建..."
-    
-    # 检查 Go
-    if ! command -v go &> /dev/null; then
-        info "安装 Go..."
-        install_golang
+    if [[ "$OS" == "windows" ]]; then
+        mv "${BINARY_NAME}.exe" "${INSTALL_DIR}/"
+    else
+        mv "${BINARY_NAME}" "${INSTALL_DIR}/"
+        chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
     fi
     
-    # 克隆源码
-    TMP_DIR=$(mktemp -d)
-    cd "$TMP_DIR"
-    
-    git clone "https://github.com/${GITHUB_REPO}.git" sboard
-    cd sboard
-    
-    # 构建
-    go build -o "${INSTALL_DIR}/${BINARY_NAME}" ./cmd/sboard
-    
     # 清理
     cd /
     rm -rf "$TMP_DIR"
     
-    success "从源码构建完成"
-}
-
-# 安装 Go
-install_golang() {
-    GO_VERSION="1.21.5"
-    GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz"
-    
-    curl -fsSL "$GO_URL" -o /tmp/go.tar.gz
-    rm -rf /usr/local/go
-    tar -C /usr/local -xzf /tmp/go.tar.gz
-    rm /tmp/go.tar.gz
-    
-    export PATH=$PATH:/usr/local/go/bin
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+    success "SBoard 下载完成"
 }
 
 # 创建配置文件
 create_config() {
-    if [[ -f "${CONFIG_DIR}/config.yaml" ]]; then
+    if [[ -f "${DATA_DIR}/config.yaml" ]]; then
         warning "配置文件已存在，跳过创建"
         return
     fi
     
     info "创建配置文件..."
     
-    # 生成随机 JWT 密钥
+    # 生成随机 JWT 密钥和 Agent Token
     JWT_SECRET=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+    AGENT_TOKEN=$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
     
-    cat > "${CONFIG_DIR}/config.yaml" << EOF
+    cat > "${DATA_DIR}/config.yaml" << EOF
 # SBoard 配置文件
 
 server:
   listen: "0.0.0.0:8080"
   debug: false
 
-data:
-  database: "${DATA_DIR}/sboard.db"
-
 security:
   jwt_secret: "${JWT_SECRET}"
-  jwt_expire_hour: 168  # 7 天
-  session_name: "sboard_token"
+  jwt_expire_hour: 168
 
-ssh:
-  timeout: 30
-  key_path: ""
-
-core:
-  sing_box_path: "/etc/sing-box"
-  mihomo_path: "/etc/mihomo"
+agent:
+  token: "${AGENT_TOKEN}"
 EOF
 
-    chmod 600 "${CONFIG_DIR}/config.yaml"
-    success "配置文件创建完成: ${CONFIG_DIR}/config.yaml"
+    chmod 600 "${DATA_DIR}/config.yaml"
+    success "配置文件创建完成: ${DATA_DIR}/config.yaml"
 }
 
-# 创建 systemd 服务
+# 创建 systemd 服务 (仅 Linux)
 create_service() {
+    if [[ "$OS" != "linux" ]]; then
+        warning "非 Linux 系统，跳过 systemd 服务创建"
+        return
+    fi
+    
     info "创建 systemd 服务..."
     
     cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
@@ -240,7 +217,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=${INSTALL_DIR}/${BINARY_NAME} -c ${CONFIG_DIR}/config.yaml
+WorkingDirectory=${DATA_DIR}
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} -d ${DATA_DIR}
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
@@ -257,6 +235,11 @@ EOF
 
 # 启动服务
 start_service() {
+    if [[ "$OS" != "linux" ]]; then
+        warning "非 Linux 系统，请手动启动: ${INSTALL_DIR}/${BINARY_NAME} -d ${DATA_DIR}"
+        return
+    fi
+    
     info "启动 SBoard..."
     
     systemctl start ${SERVICE_NAME}
@@ -273,23 +256,32 @@ start_service() {
 
 # 打印信息
 print_info() {
+    # 获取本机 IP
+    if command -v hostname &> /dev/null; then
+        LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+    else
+        LOCAL_IP="localhost"
+    fi
+    
     echo ""
     echo "=========================================="
     echo -e "${GREEN}SBoard 安装成功!${NC}"
     echo "=========================================="
     echo ""
+    echo "版本: ${LATEST_VERSION}"
     echo "安装目录: ${INSTALL_DIR}"
-    echo "配置文件: ${CONFIG_DIR}/config.yaml"
     echo "数据目录: ${DATA_DIR}"
     echo ""
-    echo "管理命令:"
-    echo "  启动: systemctl start ${SERVICE_NAME}"
-    echo "  停止: systemctl stop ${SERVICE_NAME}"
-    echo "  重启: systemctl restart ${SERVICE_NAME}"
-    echo "  状态: systemctl status ${SERVICE_NAME}"
-    echo "  日志: journalctl -u ${SERVICE_NAME} -f"
-    echo ""
-    echo "访问地址: http://$(hostname -I | awk '{print $1}'):8080"
+    if [[ "$OS" == "linux" ]]; then
+        echo "管理命令:"
+        echo "  启动: systemctl start ${SERVICE_NAME}"
+        echo "  停止: systemctl stop ${SERVICE_NAME}"
+        echo "  重启: systemctl restart ${SERVICE_NAME}"
+        echo "  状态: systemctl status ${SERVICE_NAME}"
+        echo "  日志: journalctl -u ${SERVICE_NAME} -f"
+        echo ""
+    fi
+    echo "访问地址: http://${LOCAL_IP}:8080"
     echo ""
     echo -e "${YELLOW}首次登录请使用:${NC}"
     echo "  用户名: admin"
@@ -303,23 +295,23 @@ print_info() {
 uninstall() {
     info "卸载 SBoard..."
     
-    # 停止服务
-    systemctl stop ${SERVICE_NAME} 2>/dev/null || true
-    systemctl disable ${SERVICE_NAME} 2>/dev/null || true
-    
-    # 删除文件
-    rm -f /etc/systemd/system/${SERVICE_NAME}.service
-    rm -rf "${INSTALL_DIR}"
-    
-    # 询问是否删除配置和数据
-    read -p "是否删除配置文件和数据? [y/N]: " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -rf "${CONFIG_DIR}"
-        rm -rf "${DATA_DIR}"
+    if [[ "$OS" == "linux" ]]; then
+        # 停止服务
+        systemctl stop ${SERVICE_NAME} 2>/dev/null || true
+        systemctl disable ${SERVICE_NAME} 2>/dev/null || true
+        rm -f /etc/systemd/system/${SERVICE_NAME}.service
+        systemctl daemon-reload
     fi
     
-    systemctl daemon-reload
+    # 删除安装目录
+    rm -rf "${INSTALL_DIR}"
+    
+    # 询问是否删除数据
+    read -p "是否删除数据目录 (${DATA_DIR})? [y/N]: " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        rm -rf "${DATA_DIR}"
+    fi
     
     success "SBoard 卸载完成"
 }
@@ -328,17 +320,18 @@ uninstall() {
 update() {
     info "更新 SBoard..."
     
-    # 停止服务
-    systemctl stop ${SERVICE_NAME}
+    if [[ "$OS" == "linux" ]]; then
+        systemctl stop ${SERVICE_NAME} 2>/dev/null || true
+    fi
     
-    # 获取最新版本并下载
     get_latest_version
     download_and_install
     
-    # 启动服务
-    start_service
+    if [[ "$OS" == "linux" ]]; then
+        systemctl start ${SERVICE_NAME}
+    fi
     
-    success "SBoard 更新完成"
+    success "SBoard 更新到 ${LATEST_VERSION}"
 }
 
 # 显示帮助
@@ -346,7 +339,7 @@ show_help() {
     echo "SBoard 安装脚本"
     echo ""
     echo "用法:"
-    echo "  install.sh [命令]"
+    echo "  install-sboard.sh [命令]"
     echo ""
     echo "命令:"
     echo "  install   安装 SBoard (默认)"
@@ -354,10 +347,21 @@ show_help() {
     echo "  uninstall 卸载 SBoard"
     echo "  help      显示帮助"
     echo ""
+    echo "支持的平台:"
+    echo "  Linux:   amd64, arm64, armv7, 386"
+    echo "  macOS:   amd64, arm64"
+    echo "  FreeBSD: amd64, arm64"
+    echo ""
 }
 
 # 主函数
 main() {
+    echo ""
+    echo "=========================================="
+    echo "       SBoard 一键安装脚本"
+    echo "=========================================="
+    echo ""
+    
     case "${1:-install}" in
         install)
             check_root
@@ -373,11 +377,14 @@ main() {
             ;;
         update)
             check_root
+            detect_os
             detect_arch
+            install_deps
             update
             ;;
         uninstall)
             check_root
+            detect_os
             uninstall
             ;;
         help|--help|-h)
