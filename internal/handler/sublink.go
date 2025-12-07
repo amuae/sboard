@@ -654,11 +654,9 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("server", host)
 		add("port", port)
 		add("password", user.UUID)
-		add("udp", true)
 		if node.TlsEnabled && node.ServerName != "" {
 			add("sni", node.ServerName)
 			add("skip-cert-verify", true)
-			add("client-fingerprint", "chrome")
 		}
 		if node.Hy2Obfs != "" {
 			add("obfs", node.Hy2Obfs)
