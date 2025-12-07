@@ -19,15 +19,18 @@ echo "=== 复制前端到嵌入目录 ==="
 rm -rf cmd/sboard/web/*
 cp -r web/dist/* cmd/sboard/web/
 
+# 编译优化参数：-s 去掉符号表，-w 去掉调试信息
+LDFLAGS="-s -w"
+
 echo "=== 编译后端 ==="
-go build -o sboard ./cmd/sboard
+CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o sboard ./cmd/sboard
 if [ $? -ne 0 ]; then
     echo "后端编译失败"
     exit 1
 fi
 
 echo "=== 编译 Agent ==="
-go build -o agent ./cmd/agent
+CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o agent ./cmd/agent
 if [ $? -ne 0 ]; then
     echo "Agent 编译失败"
     exit 1
