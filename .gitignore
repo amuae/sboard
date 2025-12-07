@@ -43,3 +43,6 @@ logs/
 tmp/
 *.tmp
 *.temp
+
+# 备份
+backup/

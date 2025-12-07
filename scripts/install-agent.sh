@@ -17,7 +17,7 @@ NC='\033[0m'
 
 # 配置
 GITHUB_REPO="amuae/sboard"
-INSTALL_DIR="/opt/sboard-agent"
+INSTALL_DIR="/opt/sboard/agent"
 SERVICE_NAME="sboard-agent"
 BINARY_NAME="sboard-agent"
 CONFIG_FILE="agent.json"

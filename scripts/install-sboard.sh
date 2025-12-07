@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 # 配置
 GITHUB_REPO="amuae/sboard"
 INSTALL_DIR="/opt/sboard"
-DATA_DIR="/var/lib/sboard"
+DATA_DIR="/opt/sboard/data"
 SERVICE_NAME="sboard"
 BINARY_NAME="sboard"
 
