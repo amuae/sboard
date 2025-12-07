@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # SBoard Agent 一键安装脚本
-# 用法: curl -fsSL https://your-panel.com/install-agent.sh | bash -s -- --token <token> --panel <panel_url> [--core <core_type>]
+# 用法: curl -fsSL https://your-panel.com/install-agent.sh | bash -s -- --token <token> [--core <core_type>]
+# 或者: curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-agent.sh | bash -s -- --token <token> --panel <panel_url> [--core <core_type>]
 
 set -e
 

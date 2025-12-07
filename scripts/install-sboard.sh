@@ -2,7 +2,7 @@
 
 # SBoard Go 版本一键安装脚本
 # 支持: Debian 10+, Ubuntu 18.04+, CentOS 7+
-# 用法: curl -fsSL https://your-domain.com/install.sh | bash
+# 用法: curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 
 set -e
 
@@ -14,7 +14,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 配置
-GITHUB_REPO="sboard-go/sboard"
+GITHUB_REPO="amuae/sboard"
 INSTALL_DIR="/opt/sboard"
 CONFIG_DIR="/etc/sboard"
 DATA_DIR="/var/lib/sboard"

@@ -17,7 +17,7 @@
 
 ```bash
 # 一键安装
-curl -fsSL https://raw.githubusercontent.com/sboard-go/sboard/main/scripts/install-sboard.sh | bash
+curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 
 # 或手动运行
 bash scripts/install-sboard.sh install
@@ -34,7 +34,7 @@ bash scripts/install-sboard.sh install
 
 ```bash
 # 克隆代码
-git clone https://github.com/sboard-go/sboard.git
+git clone https://github.com/amuae/sboard.git
 cd sboard
 
 # 构建前端 (可选，如果有前端代码)
