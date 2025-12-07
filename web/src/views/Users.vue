@@ -287,10 +287,33 @@ function toggleDropdown(userId: number) {
   openDropdownId.value = openDropdownId.value === userId ? null : userId
 }
 
+// 通用复制函数
+function copyToClipboard(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(resolve).catch(reject)
+    } else {
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+        resolve()
+      } catch (err) {
+        reject(err)
+      }
+    }
+  })
+}
+
 function copySubLink(user: User, nodeTag: string, lv3Only: boolean) {
   // 格式: /subscribe/{uuid}?type={nodeTag}
   let url = `${window.location.origin}/subscribe/${user.uuid}?type=${nodeTag}`
-  navigator.clipboard.writeText(url).then(() => {
+  copyToClipboard(url).then(() => {
     showToast('success', '成功', `已复制订阅链接: ${nodeTag}`)
   }).catch(() => {
     showToast('error', '错误', '复制失败')

@@ -812,7 +812,7 @@ function saveNodeConfig() {
 async function copyAgentToken() {
   if (formData.value.agent_token) {
     try {
-      await navigator.clipboard.writeText(formData.value.agent_token)
+      await copyToClipboard(formData.value.agent_token)
       showToast('success', '成功', 'Agent Token 已复制到剪贴板')
     } catch (error) {
       showToast('error', '错误', '复制失败')
@@ -820,12 +820,34 @@ async function copyAgentToken() {
   }
 }
 
+// 通用复制函数
+async function copyToClipboard(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+  } else {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+}
+
 async function copyDeployCommand() {
+  const command = agentDeployCommand.value
+  if (!command) {
+    showToast('warning', '警告', '部署命令为空，请确保服务器已保存')
+    return
+  }
   try {
-    await navigator.clipboard.writeText(agentDeployCommand.value)
+    await copyToClipboard(command)
     showToast('success', '成功', '部署命令已复制到剪贴板')
   } catch (error) {
-    showToast('error', '错误', '复制失败')
+    showToast('error', '错误', '复制失败，请手动复制')
+    console.error('Copy failed:', error)
   }
 }
 

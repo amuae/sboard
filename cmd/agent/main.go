@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -685,8 +687,15 @@ func (a *Agent) handleRestart(msg *Message) (*Message, error) {
 	}, nil
 }
 
-// getLocalIP 从网卡获取本机 IP (非 loopback 的第一个 IP)
+// getLocalIP 获取本机公网 IP，优先通过外部 API，失败则使用本地网卡 IP
 func getLocalIP() string {
+	// 尝试通过外部 API 获取公网 IP
+	publicIP := getPublicIP()
+	if publicIP != "" {
+		return publicIP
+	}
+
+	// 回退到本地网卡 IP
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return ""
@@ -697,6 +706,39 @@ func getLocalIP() string {
 			if ipnet.IP.To4() != nil {
 				return ipnet.IP.String()
 			}
+		}
+	}
+	return ""
+}
+
+// getPublicIP 通过外部 API 获取公网 IP
+func getPublicIP() string {
+	// 优先使用国内 API
+	apis := []string{
+		"https://4.ipw.cn",
+		"https://6.ipw.cn",
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	for _, api := range apis {
+		resp, err := client.Get(api)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			continue
+		}
+
+		ip := strings.TrimSpace(string(body))
+		// 验证是否为有效 IP
+		if net.ParseIP(ip) != nil {
+			return ip
 		}
 	}
 	return ""
