@@ -257,11 +257,25 @@
                     v-for="node in availableNodes" 
                     :key="node.id" 
                     type="button"
-                    class="btn btn-sm"
+                    class="btn btn-sm position-relative"
                     :class="isNodeConfigured(node) ? 'btn-primary' : 'btn-outline-secondary'"
                     @click="openNodeConfigModal(node)"
                   >
                     {{ node.tag }}
+                    <!-- 端口转发指示点（右上角绿色） -->
+                    <span 
+                      v-if="isForwardEnabled(node)" 
+                      class="position-absolute translate-middle badge rounded-circle bg-success p-1"
+                      style="top: 4px; right: -2px; width: 8px; height: 8px;"
+                      title="已启用端口转发"
+                    ></span>
+                    <!-- 落地出站指示点（右下角蓝色） -->
+                    <span 
+                      v-if="isOutboundEnabled(node)" 
+                      class="position-absolute translate-middle badge rounded-circle bg-info p-1"
+                      style="bottom: -4px; right: -2px; width: 8px; height: 8px;"
+                      title="已启用落地出站"
+                    ></span>
                   </button>
                 </div>
                 <small class="text-muted d-block mt-2">点击节点按钮配置端口转发或落地出站</small>
@@ -748,6 +762,9 @@ const nodeConfigData = ref({
   outbound_ws_host: ''
 })
 
+// 当前服务器的节点配置缓存 (key 为 nodeId)
+const currentServerNodeConfigs = ref<Record<string, NodeConfig>>({})
+
 // 导入链接
 const importLink = ref('')
 
@@ -1077,17 +1094,30 @@ function getCategoryClass(category: string) {
 }
 
 function isNodeConfigured(node: Node) {
-  // 检查节点是否已配置（这里需要根据实际数据结构判断）
-  return false
+  const config = currentServerNodeConfigs.value[node.id.toString()]
+  return config && (config.forward_enabled || config.outbound_enabled)
+}
+
+// 检查节点是否启用了端口转发
+function isForwardEnabled(node: Node) {
+  const config = currentServerNodeConfigs.value[node.id.toString()]
+  return config?.forward_enabled || false
+}
+
+// 检查节点是否启用了落地出站
+function isOutboundEnabled(node: Node) {
+  const config = currentServerNodeConfigs.value[node.id.toString()]
+  return config?.outbound_enabled || false
 }
 
 function openAddModal() {
   isEditing.value = false
   formData.value = getDefaultFormData()
+  currentServerNodeConfigs.value = {} // 新建服务器时清空节点配置缓存
   serverModal?.show()
 }
 
-function openEditModal(server: Server) {
+async function openEditModal(server: Server) {
   isEditing.value = true
   formData.value = {
     id: server.id,
@@ -1105,6 +1135,16 @@ function openEditModal(server: Server) {
     agent_id: server.agent_id || '',
     agent_online: server.agent_online || false
   }
+  
+  // 加载服务器的节点配置
+  currentServerNodeConfigs.value = {}
+  try {
+    const res = await getNodeConfigs(server.id)
+    currentServerNodeConfigs.value = res.data.data || {}
+  } catch (error) {
+    console.error('加载节点配置失败:', error)
+  }
+  
   serverModal?.show()
 }
 
@@ -1298,6 +1338,14 @@ async function saveNodeConfig() {
   
   try {
     await saveNodeConfigApi(formData.value.id, selectedNode.value.id, nodeConfigData.value)
+    
+    // 更新本地缓存
+    currentServerNodeConfigs.value[selectedNode.value.id.toString()] = {
+      ...nodeConfigData.value,
+      node_id: selectedNode.value.id,
+      server_id: formData.value.id
+    } as NodeConfig
+    
     showToast('success', '成功', '节点配置已保存')
     nodeConfigModal?.hide()
   } catch (error: any) {
