@@ -186,19 +186,8 @@ func (s *Server) handleGitHubCallback(c *gin.Context) {
 		return
 	}
 
-	// 设置 cookie
-	c.SetCookie(
-		s.config.Security.SessionName,
-		token,
-		s.config.Security.JWTExpireHour*3600,
-		"/",
-		"",
-		false,
-		true,
-	)
-
-	// 重定向到首页
-	c.Redirect(http.StatusFound, "/")
+	// 重定向到首页，通过 URL 参数传递 token
+	c.Redirect(http.StatusFound, "/?oauth_token="+url.QueryEscape(token))
 }
 
 // exchangeGitHubCode 用 code 交换 access token

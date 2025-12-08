@@ -397,7 +397,24 @@ const onLoginSuccess = () => {
   isLoggedIn.value = true
 }
 
+// 处理 OAuth 登录回调
+const handleOAuthCallback = () => {
+  const urlParams = new URLSearchParams(window.location.search)
+  const oauthToken = urlParams.get('oauth_token')
+  if (oauthToken) {
+    localStorage.setItem('token', oauthToken)
+    isLoggedIn.value = true
+    // 清除 URL 参数
+    window.history.replaceState({}, document.title, window.location.pathname)
+    // 跳转到用户管理页面
+    router.push('/users')
+  }
+}
+
 onMounted(() => {
+  // 处理 OAuth 登录回调
+  handleOAuthCallback()
+  
   // 初始化 Toast
   nextTick(() => {
     if (toastEl.value) {
