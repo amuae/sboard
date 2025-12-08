@@ -998,7 +998,7 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 	log.Printf("开始自我更新 (平台: %s/%s)", runtime.GOOS, runtime.GOARCH)
 
 	// 确定下载 URL（使用 GitHub 加速域名）
-	// 格式: https://ghproxy.net/github.com/amuae/sboard/releases/latest/download/agent-{os}-{arch}
+	// 格式: https://gh.llkk.cc/https://github.com/amuae/sboard/releases/latest/download/agent-{os}-{arch}
 	osName := runtime.GOOS
 	archName := runtime.GOARCH
 
@@ -1019,7 +1019,7 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 	}
 
 	// 下载 URL（使用加速域名）
-	downloadURL := fmt.Sprintf("https://ghproxy.net/https://github.com/amuae/sboard/releases/latest/download/%s", fileName)
+	downloadURL := fmt.Sprintf("https://gh.llkk.cc/https://github.com/amuae/sboard/releases/latest/download/%s", fileName)
 
 	log.Printf("下载地址: %s", downloadURL)
 

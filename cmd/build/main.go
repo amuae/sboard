@@ -19,10 +19,10 @@ import (
 
 // GitHub 加速代理列表
 var ghProxies = []string{
-	"",                            // 直接下载
-	"https://ghfast.top/",         // 加速代理1
-	"https://gh-proxy.com/",       // 加速代理2
-	"https://mirror.ghproxy.com/", // 加速代理3
+	"",                      // 直接下载
+	"https://gh.llkk.cc/",   // 加速代理1
+	"https://ghfast.top/",   // 加速代理2
+	"https://gh-proxy.com/", // 加速代理3
 }
 
 // 嵌入目录
