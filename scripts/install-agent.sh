@@ -265,13 +265,13 @@ install_deps() {
 get_latest_version() {
     info "获取最新版本..."
     
-    # 先尝试直接访问
-    LATEST_VERSION=$(curl -fsSL --connect-timeout 5 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    # 优先使用加速访问（国内友好）
+    LATEST_VERSION=$(curl -fsSL --connect-timeout 5 "${GH_PROXY_API}https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     
-    # 如果失败，使用加速
+    # 如果失败，尝试直接访问
     if [[ -z "$LATEST_VERSION" ]]; then
-        info "直接访问失败，使用加速..."
-        LATEST_VERSION=$(curl -fsSL "${GH_PROXY_API}https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        info "加速访问失败，尝试直接访问..."
+        LATEST_VERSION=$(curl -fsSL --connect-timeout 5 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     fi
     
     if [[ -z "$LATEST_VERSION" ]]; then
@@ -384,14 +384,14 @@ download_agent() {
     TMP_DIR=$(mktemp -d)
     cd "$TMP_DIR"
     
-    # 先尝试直接下载
-    info "尝试直接下载: $DOWNLOAD_URL_DIRECT"
-    if curl -fsSL --connect-timeout 10 "$DOWNLOAD_URL_DIRECT" -o "${DOWNLOAD_FILE}" 2>/dev/null; then
-        info "直接下载成功"
+    # 优先使用加速下载（国内友好）
+    info "下载: $DOWNLOAD_URL_PROXY"
+    if curl -fsSL --connect-timeout 5 "$DOWNLOAD_URL_PROXY" -o "${DOWNLOAD_FILE}" 2>/dev/null; then
+        info "下载成功"
     else
-        # 使用加速下载
-        info "直接下载失败，使用加速下载: $DOWNLOAD_URL_PROXY"
-        if ! curl -fsSL "$DOWNLOAD_URL_PROXY" -o "${DOWNLOAD_FILE}"; then
+        # 回退到直接下载
+        info "加速下载失败，尝试直接下载: $DOWNLOAD_URL_DIRECT"
+        if ! curl -fsSL --connect-timeout 10 "$DOWNLOAD_URL_DIRECT" -o "${DOWNLOAD_FILE}"; then
             rm -rf "$TMP_DIR"
             error "下载失败，请检查版本 ${LATEST_VERSION} 是否存在 ${OS}_${ARCH} 构建"
         fi
