@@ -23,7 +23,11 @@
 ### 面板一键安装
 
 ```bash
+# 直接安装
 curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
+
+# 国内加速
+curl -fsSL https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 ```
 
 ### Agent 一键卸载
@@ -31,13 +35,21 @@ curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-s
 **Linux / macOS:**
 
 ```bash
+# 直接卸载
 curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
+
+# 国内加速
+curl -fsSL https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
 ```
 
 **Windows (PowerShell 管理员):**
 
 ```powershell
+# 直接卸载
 irm https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
+
+# 国内加速
+irm https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
 ```
 
 ## 服务管理
