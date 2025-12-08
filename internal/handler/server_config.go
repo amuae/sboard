@@ -287,17 +287,9 @@ func generateSingBoxServerConfig(_ database.Server, nodes []database.InboundNode
 
 		inbounds = append(inbounds, inbound)
 
-		// 处理端口转发/落地出站
-		if nodeConfig.ForwardEnabled {
-			// 端口转发：添加直连到目标
-			inbound["detour"] = fmt.Sprintf("forward-%d", node.ID)
-			outbounds = append(outbounds, map[string]interface{}{
-				"type":             "direct",
-				"tag":              fmt.Sprintf("forward-%d", node.ID),
-				"override_address": nodeConfig.ForwardHost,
-				"override_port":    nodeConfig.ForwardPort,
-			})
-		} else if nodeConfig.OutboundEnabled {
+		// 处理落地出站配置
+		// 注意：ForwardEnabled 只用于订阅地址替换，不影响服务器端配置
+		if nodeConfig.OutboundEnabled {
 			// 落地出站
 			outboundTag := fmt.Sprintf("outbound-%d", node.ID)
 			inbound["detour"] = outboundTag
@@ -561,10 +553,9 @@ func generateMihomoServerConfig(_ database.Server, nodes []database.InboundNode,
 		}
 
 		// 代理目标
-		if nodeConfig.ForwardEnabled {
-			listener["proxy"] = fmt.Sprintf("%s:%d", nodeConfig.ForwardHost, nodeConfig.ForwardPort)
-		} else if nodeConfig.OutboundEnabled {
-			// Mihomo 不直接支持落地出站，使用 proxy-chain
+		// 注意：ForwardEnabled 只用于订阅地址替换，不影响服务器端配置
+		if nodeConfig.OutboundEnabled {
+			// 使用落地出站
 			listener["proxy"] = fmt.Sprintf("outbound-%d", node.ID)
 		} else {
 			listener["proxy"] = "DIRECT"
