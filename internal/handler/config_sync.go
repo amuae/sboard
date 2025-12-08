@@ -522,17 +522,21 @@ func GenerateServerConfig(server *database.Server, configType string) (string, e
 
 	switch configType {
 	case "sing-box", "singbox":
-		return generateServerSingBoxConfig(nodes)
+		return generateServerSingBoxConfig(nodes, nodeConfigMap)
 	case "mihomo", "clash":
-		return generateServerMihomoConfig(nodes)
+		return generateServerMihomoConfig(nodes, nodeConfigMap)
 	default:
 		return "", fmt.Errorf("不支持的配置类型: %s", configType)
 	}
 }
 
 // generateServerSingBoxConfig 为服务器生成 sing-box 配置
-func generateServerSingBoxConfig(nodes []database.InboundNode) (string, error) {
+func generateServerSingBoxConfig(nodes []database.InboundNode, nodeConfigMap map[uint]*database.ServerNodeConfig) (string, error) {
 	inbounds := []*OrderedMap{}
+	outbounds := []interface{}{
+		map[string]interface{}{"type": "direct", "tag": "direct"},
+	}
+	routeRules := []interface{}{}
 
 	for _, node := range nodes {
 		nodeUsers := getNodeUsers(node.ID)
@@ -542,6 +546,118 @@ func generateServerSingBoxConfig(nodes []database.InboundNode) (string, error) {
 
 		inbound := buildSingBoxInbound(&node, nodeUsers)
 		if inbound != nil {
+			// 检查是否有落地出站配置
+			if nodeConfig, ok := nodeConfigMap[node.ID]; ok && nodeConfig.OutboundEnabled {
+				outboundTag := fmt.Sprintf("outbound-%d", node.ID)
+				// 添加路由规则：从该入站进来的流量走对应的出站
+				routeRules = append(routeRules, map[string]interface{}{
+					"inbound":  []string{node.Tag},
+					"outbound": outboundTag,
+				})
+
+				// 构建出站配置
+				ob := map[string]interface{}{
+					"tag":         outboundTag,
+					"server":      nodeConfig.OutboundHost,
+					"server_port": nodeConfig.OutboundPort,
+				}
+
+				switch nodeConfig.OutboundProtocol {
+				case "shadowsocks", "ss":
+					ob["type"] = "shadowsocks"
+					ob["method"] = nodeConfig.OutboundMethod
+					ob["password"] = nodeConfig.OutboundPassword
+				case "trojan":
+					ob["type"] = "trojan"
+					ob["password"] = nodeConfig.OutboundPassword
+					tls := map[string]interface{}{
+						"enabled":  true,
+						"insecure": true,
+					}
+					if nodeConfig.OutboundSni != "" {
+						tls["server_name"] = nodeConfig.OutboundSni
+					}
+					tls["utls"] = map[string]interface{}{
+						"enabled":     true,
+						"fingerprint": "chrome",
+					}
+					ob["tls"] = tls
+				case "socks5":
+					ob["type"] = "socks"
+					if nodeConfig.OutboundUsername != "" {
+						ob["username"] = nodeConfig.OutboundUsername
+						ob["password"] = nodeConfig.OutboundPassword
+					}
+				case "vless":
+					ob["type"] = "vless"
+					ob["uuid"] = nodeConfig.OutboundUUID
+					if nodeConfig.OutboundFlow != "" {
+						ob["flow"] = nodeConfig.OutboundFlow
+					}
+					if nodeConfig.OutboundReality {
+						tls := map[string]interface{}{
+							"enabled": true,
+							"reality": map[string]interface{}{
+								"enabled":    true,
+								"public_key": nodeConfig.OutboundPubKey,
+								"short_id":   nodeConfig.OutboundShortId,
+							},
+						}
+						if nodeConfig.OutboundSni != "" {
+							tls["server_name"] = nodeConfig.OutboundSni
+						}
+						utls := map[string]interface{}{"enabled": true}
+						if nodeConfig.OutboundFp != "" {
+							utls["fingerprint"] = nodeConfig.OutboundFp
+						} else {
+							utls["fingerprint"] = "chrome"
+						}
+						tls["utls"] = utls
+						ob["tls"] = tls
+					} else if nodeConfig.OutboundTls {
+						tls := map[string]interface{}{
+							"enabled":  true,
+							"insecure": true,
+						}
+						if nodeConfig.OutboundSni != "" {
+							tls["server_name"] = nodeConfig.OutboundSni
+						}
+						tls["utls"] = map[string]interface{}{
+							"enabled":     true,
+							"fingerprint": "chrome",
+						}
+						ob["tls"] = tls
+					}
+				case "vmess":
+					ob["type"] = "vmess"
+					ob["uuid"] = nodeConfig.OutboundUUID
+					ob["alter_id"] = nodeConfig.OutboundAlterId
+					if nodeConfig.OutboundSecurity != "" {
+						ob["security"] = nodeConfig.OutboundSecurity
+					} else {
+						ob["security"] = "auto"
+					}
+					if nodeConfig.OutboundTls {
+						tls := map[string]interface{}{
+							"enabled":  true,
+							"insecure": true,
+						}
+						if nodeConfig.OutboundSni != "" {
+							tls["server_name"] = nodeConfig.OutboundSni
+						}
+						tls["utls"] = map[string]interface{}{
+							"enabled":     true,
+							"fingerprint": "chrome",
+						}
+						ob["tls"] = tls
+					}
+				default:
+					ob["type"] = nodeConfig.OutboundProtocol
+				}
+
+				outbounds = append(outbounds, ob)
+			}
+
 			inbounds = append(inbounds, inbound)
 		}
 	}
@@ -549,9 +665,16 @@ func generateServerSingBoxConfig(nodes []database.InboundNode) (string, error) {
 	config := NewOrderedMap()
 	config.Set("log", map[string]interface{}{"disabled": true})
 	config.Set("inbounds", inbounds)
-	config.Set("outbounds", []interface{}{
-		map[string]interface{}{"type": "direct", "tag": "direct"},
-	})
+	config.Set("outbounds", outbounds)
+
+	// 添加路由配置
+	if len(routeRules) > 0 {
+		route := map[string]interface{}{
+			"rules": routeRules,
+			"final": "direct",
+		}
+		config.Set("route", route)
+	}
 
 	jsonData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -562,8 +685,10 @@ func generateServerSingBoxConfig(nodes []database.InboundNode) (string, error) {
 }
 
 // generateServerMihomoConfig 为服务器生成 mihomo 配置
-func generateServerMihomoConfig(nodes []database.InboundNode) (string, error) {
+func generateServerMihomoConfig(nodes []database.InboundNode, nodeConfigMap map[uint]*database.ServerNodeConfig) (string, error) {
 	listenersNode := &yaml.Node{Kind: yaml.SequenceNode}
+	proxiesNode := &yaml.Node{Kind: yaml.SequenceNode}
+	hasProxies := false
 
 	for _, node := range nodes {
 		nodeUsers := getNodeUsers(node.ID)
@@ -573,6 +698,22 @@ func generateServerMihomoConfig(nodes []database.InboundNode) (string, error) {
 
 		listener := buildMihomoListener(&node, nodeUsers)
 		if listener != nil {
+			// 检查是否有落地出站配置
+			if nodeConfig, ok := nodeConfigMap[node.ID]; ok && nodeConfig.OutboundEnabled {
+				outboundTag := fmt.Sprintf("outbound-%d", node.ID)
+				// 设置 listener 的 proxy 为出站标签
+				setMihomoListenerProxy(listener, outboundTag)
+
+				// 构建出站代理
+				proxy := buildMihomoOutboundProxy(nodeConfig, outboundTag)
+				if proxy != nil {
+					proxiesNode.Content = append(proxiesNode.Content, proxy)
+					hasProxies = true
+				}
+			} else {
+				// 默认直连
+				setMihomoListenerProxy(listener, "DIRECT")
+			}
 			listenersNode.Content = append(listenersNode.Content, listener)
 		}
 	}
@@ -586,6 +727,12 @@ func generateServerMihomoConfig(nodes []database.InboundNode) (string, error) {
 		&yaml.Node{Kind: yaml.ScalarNode, Value: "listeners"},
 		listenersNode,
 	)
+	if hasProxies {
+		config.Content = append(config.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "proxies"},
+			proxiesNode,
+		)
+	}
 
 	var buf strings.Builder
 	encoder := yaml.NewEncoder(&buf)
@@ -596,4 +743,125 @@ func generateServerMihomoConfig(nodes []database.InboundNode) (string, error) {
 	encoder.Close()
 
 	return buf.String(), nil
+}
+
+// setMihomoListenerProxy 设置 mihomo listener 的 proxy 字段
+func setMihomoListenerProxy(listener *yaml.Node, proxy string) {
+	if listener == nil || listener.Kind != yaml.MappingNode {
+		return
+	}
+	// 查找或添加 proxy 字段
+	for i := 0; i < len(listener.Content)-1; i += 2 {
+		if listener.Content[i].Value == "proxy" {
+			listener.Content[i+1].Value = proxy
+			return
+		}
+	}
+	// 如果没有找到，添加新的
+	listener.Content = append(listener.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: "proxy"},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: proxy},
+	)
+}
+
+// buildMihomoOutboundProxy 构建 mihomo 出站代理配置
+func buildMihomoOutboundProxy(nodeConfig *database.ServerNodeConfig, tag string) *yaml.Node {
+	if nodeConfig == nil || !nodeConfig.OutboundEnabled {
+		return nil
+	}
+
+	proxy := &yaml.Node{Kind: yaml.MappingNode}
+
+	addField := func(key, value string) {
+		proxy.Content = append(proxy.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: value},
+		)
+	}
+	addIntField := func(key string, value int) {
+		proxy.Content = append(proxy.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%d", value), Tag: "!!int"},
+		)
+	}
+	addBoolField := func(key string, value bool) {
+		proxy.Content = append(proxy.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%t", value), Tag: "!!bool"},
+		)
+	}
+
+	addField("name", tag)
+	addField("server", nodeConfig.OutboundHost)
+	addIntField("port", nodeConfig.OutboundPort)
+	addBoolField("udp", true)
+
+	switch nodeConfig.OutboundProtocol {
+	case "ss", "shadowsocks":
+		addField("type", "ss")
+		addField("cipher", nodeConfig.OutboundMethod)
+		addField("password", nodeConfig.OutboundPassword)
+	case "trojan":
+		addField("type", "trojan")
+		addField("password", nodeConfig.OutboundPassword)
+		if nodeConfig.OutboundSni != "" {
+			addField("sni", nodeConfig.OutboundSni)
+		}
+		addBoolField("skip-cert-verify", true)
+		addField("client-fingerprint", "chrome")
+	case "socks5":
+		addField("type", "socks5")
+		if nodeConfig.OutboundUsername != "" {
+			addField("username", nodeConfig.OutboundUsername)
+			addField("password", nodeConfig.OutboundPassword)
+		}
+	case "vless":
+		addField("type", "vless")
+		addField("uuid", nodeConfig.OutboundUUID)
+		if nodeConfig.OutboundFlow != "" {
+			addField("flow", nodeConfig.OutboundFlow)
+		}
+		if nodeConfig.OutboundReality {
+			addField("network", "tcp")
+			addBoolField("tls", true)
+			addField("reality-opts.public-key", nodeConfig.OutboundPubKey)
+			addField("reality-opts.short-id", nodeConfig.OutboundShortId)
+			if nodeConfig.OutboundSni != "" {
+				addField("servername", nodeConfig.OutboundSni)
+			}
+			if nodeConfig.OutboundFp != "" {
+				addField("client-fingerprint", nodeConfig.OutboundFp)
+			} else {
+				addField("client-fingerprint", "chrome")
+			}
+		} else if nodeConfig.OutboundTls {
+			addBoolField("tls", true)
+			if nodeConfig.OutboundSni != "" {
+				addField("servername", nodeConfig.OutboundSni)
+			}
+			addBoolField("skip-cert-verify", true)
+			addField("client-fingerprint", "chrome")
+		}
+	case "vmess":
+		addField("type", "vmess")
+		addField("uuid", nodeConfig.OutboundUUID)
+		addIntField("alterId", nodeConfig.OutboundAlterId)
+		if nodeConfig.OutboundSecurity != "" {
+			addField("cipher", nodeConfig.OutboundSecurity)
+		} else {
+			addField("cipher", "auto")
+		}
+		if nodeConfig.OutboundTls {
+			addBoolField("tls", true)
+			if nodeConfig.OutboundSni != "" {
+				addField("servername", nodeConfig.OutboundSni)
+			}
+			addBoolField("skip-cert-verify", true)
+			addField("client-fingerprint", "chrome")
+		}
+	default:
+		addField("type", nodeConfig.OutboundProtocol)
+	}
+
+	return proxy
 }
