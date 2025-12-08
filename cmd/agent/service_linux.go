@@ -476,7 +476,7 @@ func (s *ServiceManager) generateProcdServiceFile(serviceName, installPath, core
 
 	switch coreType {
 	case "sing-box":
-		commandArgs = fmt.Sprintf("run -c %s/config.json", installPath)
+		commandArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
 	case "mihomo":
 		commandArgs = fmt.Sprintf("-d %s", installPath)
 	}
@@ -488,9 +488,10 @@ START=99
 
 NAME="%s"
 PROG="%s/%s"
+WORKDIR="%s"
 
 start_service() {
-    mkdir -p %s
+    mkdir -p $WORKDIR
     procd_open_instance "$NAME"
     procd_set_param command "$PROG" %s
     procd_set_param respawn
