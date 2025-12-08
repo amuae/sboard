@@ -103,19 +103,8 @@ function Get-Architecture {
 function Get-LatestVersion {
     Write-Info "获取最新版本..."
     
-    # 先尝试直接访问
     try {
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$GITHUB_REPO/releases/latest" -UseBasicParsing -TimeoutSec 10
-        $version = $response.tag_name
-        Write-Info "最新版本: $version"
-        return $version
-    } catch {
-        Write-Info "直接访问失败，使用加速..."
-    }
-    
-    # 使用加速访问
-    try {
-        $response = Invoke-RestMethod -Uri "${GH_PROXY_API}https://api.github.com/repos/$GITHUB_REPO/releases/latest" -UseBasicParsing
+        $response = Invoke-RestMethod -Uri "${GH_PROXY_API}https://api.github.com/repos/$GITHUB_REPO/releases/latest" -UseBasicParsing -TimeoutSec 30
         $version = $response.tag_name
         Write-Info "最新版本: $version"
         return $version
@@ -175,23 +164,15 @@ function Download-Agent {
     
     # 构建下载 URL
     $downloadFile = "${BINARY_NAME.Replace('.exe', '')}_windows_${Arch}.zip"
-    $downloadUrlDirect = "https://github.com/$GITHUB_REPO/releases/download/$Version/$downloadFile"
-    $downloadUrlProxy = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/download/$Version/$downloadFile"
+    $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/download/$Version/$downloadFile"
     $tempZip = Join-Path $env:TEMP $downloadFile
     
-    # 先尝试直接下载
-    Write-Info "尝试直接下载: $downloadUrlDirect"
+    Write-Info "下载: $downloadUrl"
     try {
-        Invoke-WebRequest -Uri $downloadUrlDirect -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
-        Write-Info "直接下载成功"
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 60
+        Write-Info "下载成功"
     } catch {
-        # 使用加速下载
-        Write-Info "直接下载失败，使用加速下载: $downloadUrlProxy"
-        try {
-            Invoke-WebRequest -Uri $downloadUrlProxy -OutFile $tempZip -UseBasicParsing
-        } catch {
-            Write-Error "下载失败: $_"
-        }
+        Write-Error "下载失败: $_"
     }
     
     try {

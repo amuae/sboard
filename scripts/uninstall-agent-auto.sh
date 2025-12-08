@@ -49,13 +49,10 @@ detect_os() {
 run_linux_uninstaller() {
     info "检测到 Linux/macOS 系统，下载卸载脚本..."
     
-    # 先尝试直接下载
-    if curl -fsSL --connect-timeout 5 "${REPO_URL}/uninstall-agent.sh" -o /tmp/uninstall-agent.sh 2>/dev/null; then
-        info "直接下载成功"
-    else
-        info "使用加速下载..."
-        curl -fsSL "${GH_PROXY}${REPO_URL}/uninstall-agent.sh" -o /tmp/uninstall-agent.sh
+    if ! curl -fsSL --connect-timeout 10 "${GH_PROXY}${REPO_URL}/uninstall-agent.sh" -o /tmp/uninstall-agent.sh; then
+        error "下载卸载脚本失败"
     fi
+    info "下载成功"
     
     chmod +x /tmp/uninstall-agent.sh
     bash /tmp/uninstall-agent.sh "$@"

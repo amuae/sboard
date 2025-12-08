@@ -331,14 +331,7 @@ install_deps() {
 get_latest_version() {
     info "获取最新版本..."
     
-    # 先尝试直接访问
-    LATEST_VERSION=$(curl -fsSL --connect-timeout 5 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    
-    # 如果失败，使用加速
-    if [[ -z "$LATEST_VERSION" ]]; then
-        info "直接访问失败，使用加速..."
-        LATEST_VERSION=$(curl -fsSL "${GH_PROXY_API}https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    fi
+    LATEST_VERSION=$(curl -fsSL --connect-timeout 10 "${GH_PROXY_API}https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     
     if [[ -z "$LATEST_VERSION" ]]; then
         error "无法获取最新版本，请检查网络连接"
@@ -352,25 +345,18 @@ download_and_install() {
     
     # 构建下载 URL
     DOWNLOAD_FILE="${BINARY_NAME}_${OS}_${ARCH}.zip"
-    DOWNLOAD_URL_DIRECT="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${DOWNLOAD_FILE}"
-    DOWNLOAD_URL_PROXY="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${DOWNLOAD_FILE}"
+    DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${DOWNLOAD_FILE}"
     
     # 创建临时目录
     TMP_DIR=$(mktemp -d)
     cd "$TMP_DIR"
     
-    # 先尝试直接下载
-    info "尝试直接下载: $DOWNLOAD_URL_DIRECT"
-    if curl -fsSL --connect-timeout 10 "$DOWNLOAD_URL_DIRECT" -o "${DOWNLOAD_FILE}" 2>/dev/null; then
-        info "直接下载成功"
-    else
-        # 使用加速下载
-        info "直接下载失败，使用加速下载: $DOWNLOAD_URL_PROXY"
-        if ! curl -fsSL "$DOWNLOAD_URL_PROXY" -o "${DOWNLOAD_FILE}"; then
-            rm -rf "$TMP_DIR"
-            error "下载失败，请检查版本 ${LATEST_VERSION} 是否存在 ${OS}_${ARCH} 构建"
-        fi
+    info "下载: $DOWNLOAD_URL"
+    if ! curl -fsSL --connect-timeout 30 "$DOWNLOAD_URL" -o "${DOWNLOAD_FILE}"; then
+        rm -rf "$TMP_DIR"
+        error "下载失败，请检查版本 ${LATEST_VERSION} 是否存在 ${OS}_${ARCH} 构建"
     fi
+    info "下载成功"
     
     # 解压
     unzip -q "${DOWNLOAD_FILE}"
