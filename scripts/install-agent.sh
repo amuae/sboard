@@ -105,15 +105,15 @@ check_root() {
 
 # 检测操作系统
 detect_os() {
-    OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
+    OS_TYPE=$(uname -s)
     case "$OS_TYPE" in
-        linux)
+        Linux|linux)
             OS="linux"
             ;;
-        darwin)
+        Darwin|darwin)
             OS="darwin"
             ;;
-        mingw*|msys*|cygwin*)
+        MINGW*|MSYS*|CYGWIN*|mingw*|msys*|cygwin*)
             OS="windows"
             ;;
         *)
