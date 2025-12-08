@@ -47,7 +47,7 @@ func (s *ServiceManager) InstallService(serviceName, installPath, coreType strin
 	switch coreType {
 	case "sing-box":
 		configPath := filepath.Join(installPath, "config.json")
-		binPath = fmt.Sprintf(`"%s" run -c "%s"`, binaryPath, configPath)
+		binPath = fmt.Sprintf(`"%s" run -c "%s" -D "%s"`, binaryPath, configPath, installPath)
 	case "mihomo":
 		binPath = fmt.Sprintf(`"%s" -d "%s"`, binaryPath, installPath)
 	}

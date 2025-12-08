@@ -148,7 +148,9 @@ func (s *ServiceManager) generateLaunchDaemonPlist(serviceName, installPath, cor
 		programArgs = fmt.Sprintf(`		<string>%s</string>
 		<string>run</string>
 		<string>-c</string>
-		<string>%s</string>`, binaryPath, configPath)
+		<string>%s</string>
+		<string>-D</string>
+		<string>%s</string>`, binaryPath, configPath, installPath)
 	case "mihomo":
 		programArgs = fmt.Sprintf(`		<string>%s</string>
 		<string>-d</string>

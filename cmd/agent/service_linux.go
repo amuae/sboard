@@ -322,7 +322,7 @@ func (s *ServiceManager) generateSystemdServiceFile(serviceName, installPath, co
 
 	switch coreType {
 	case "sing-box":
-		execStart = fmt.Sprintf("%s/sing-box run -c %s/config.json", installPath, installPath)
+		execStart = fmt.Sprintf("%s/sing-box run -c %s/config.json -D %s", installPath, installPath, installPath)
 	case "mihomo":
 		execStart = fmt.Sprintf("%s/mihomo -d %s", installPath, installPath)
 	}
@@ -352,7 +352,7 @@ func (s *ServiceManager) generateOpenRCServiceFile(serviceName, installPath, cor
 
 	switch coreType {
 	case "sing-box":
-		commandArgs = fmt.Sprintf("run -c %s/config.json", installPath)
+		commandArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
 	case "mihomo":
 		commandArgs = fmt.Sprintf("-d %s", installPath)
 	}
@@ -388,7 +388,7 @@ func (s *ServiceManager) generateSysVinitServiceFile(serviceName, installPath, c
 
 	switch coreType {
 	case "sing-box":
-		daemonArgs = fmt.Sprintf("run -c %s/config.json", installPath)
+		daemonArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
 	case "mihomo":
 		daemonArgs = fmt.Sprintf("-d %s", installPath)
 	}
