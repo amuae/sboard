@@ -14,14 +14,12 @@ type ConfigSyncCallback func()
 type Scheduler struct {
 	stopChan       chan struct{}
 	onConfigChange ConfigSyncCallback
-	lastResetMonth int // 上次流量重置的月份
 }
 
 // New 创建新的调度器
 func New() *Scheduler {
 	return &Scheduler{
-		stopChan:       make(chan struct{}),
-		lastResetMonth: int(time.Now().Month()) - 1, // 初始化为上个月，确保启动时检查
+		stopChan: make(chan struct{}),
 	}
 }
 
@@ -103,26 +101,34 @@ func (s *Scheduler) checkExpiredUsers() {
 	}
 }
 
-// checkMonthlyTrafficReset 检查并重置月度流量
+// checkMonthlyTrafficReset 检查并重置月度流量（只在每月1日重置）
 func (s *Scheduler) checkMonthlyTrafficReset() {
-	currentMonth := int(time.Now().Month())
+	now := time.Now()
 
-	// 如果是新的一个月，重置所有服务器的月度流量
-	if currentMonth != s.lastResetMonth {
-		now := time.Now()
-		result := database.DB.Model(&database.Server{}).Where("1 = 1").Updates(map[string]interface{}{
+	// 只在每月1日执行重置
+	if now.Day() != 1 {
+		return
+	}
+
+	// 获取本月1日0点作为阈值
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+
+	// 只重置那些 traffic_reset 早于本月1日的服务器（即本月还未重置的）
+	result := database.DB.Model(&database.Server{}).
+		Where("traffic_reset IS NULL OR traffic_reset < ?", monthStart).
+		Updates(map[string]interface{}{
 			"monthly_in":    0,
 			"monthly_out":   0,
 			"traffic_reset": now,
 		})
 
-		if result.Error != nil {
-			log.Printf("重置月度流量失败: %v", result.Error)
-			return
-		}
+	if result.Error != nil {
+		log.Printf("重置月度流量失败: %v", result.Error)
+		return
+	}
 
-		s.lastResetMonth = currentMonth
-		log.Printf("已重置所有服务器的月度流量 (共 %d 台)", result.RowsAffected)
+	if result.RowsAffected > 0 {
+		log.Printf("已重置 %d 台服务器的月度流量", result.RowsAffected)
 	}
 }
 
