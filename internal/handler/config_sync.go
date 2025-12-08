@@ -282,8 +282,9 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 			}
 			tls["reality"] = reality
 		} else {
-			tls["certificate_path"] = "/root/sing-box/" + node.CertPath
-			tls["key_path"] = "/root/sing-box/" + node.KeyPath
+			// 使用相对路径，核心和证书在同一目录
+			tls["certificate_path"] = node.CertPath
+			tls["key_path"] = node.KeyPath
 		}
 
 		inbound.Set("tls", tls)
@@ -410,9 +411,9 @@ func buildMihomoListener(node *database.InboundNode, users []NodeUser) *yaml.Nod
 			}
 			addYamlNode(result, "reality-config", realityConfig)
 		} else if node.CertPath != "" {
-			// 普通 TLS 证书配置
-			addYamlField(result, "certificate", "/root/mihomo/"+node.CertPath)
-			addYamlField(result, "private-key", "/root/mihomo/"+node.KeyPath)
+			// 普通 TLS 证书配置，使用相对路径
+			addYamlField(result, "certificate", node.CertPath)
+			addYamlField(result, "private-key", node.KeyPath)
 		}
 	}
 

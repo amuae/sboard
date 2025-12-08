@@ -1,7 +1,6 @@
 package handler
 
 import (
-	_ "embed"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,16 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-//go:embed scripts/install-agent.sh
-var installAgentScript []byte
-
-// handleInstallAgentScript 提供 Agent 安装脚本
-func (s *Server) handleInstallAgentScript(c *gin.Context) {
-	c.Header("Content-Type", "text/x-shellscript; charset=utf-8")
-	c.Header("Content-Disposition", "inline; filename=install-agent.sh")
-	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", installAgentScript)
-}
 
 // handleDownloadAgent 提供 Agent 二进制下载
 func (s *Server) handleDownloadAgent(c *gin.Context) {

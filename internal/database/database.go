@@ -41,6 +41,11 @@ func Init(dbPath string) error {
 		return err
 	}
 
+	// 初始化默认的 OAuth 提供商
+	if err := InitDefaultOAuthProviders(); err != nil {
+		log.Printf("初始化默认 OAuth 提供商失败: %v", err)
+	}
+
 	log.Printf("数据库初始化完成: %s", dbPath)
 	return nil
 }
@@ -56,6 +61,7 @@ func autoMigrate() error {
 		&ServerNodeConfig{},
 		&DeployLog{},
 		&SystemConfig{},
+		&OAuthProvider{},
 	)
 }
 

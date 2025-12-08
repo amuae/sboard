@@ -619,9 +619,37 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("alterId", 0)
 		add("cipher", "auto")
 		add("udp", true)
-		if node.TlsEnabled && node.ServerName != "" {
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			add("network", node.TransportType)
+			switch node.TransportType {
+			case "ws":
+				wsOpts := map[string]interface{}{}
+				if node.WsPath != "" {
+					wsOpts["path"] = node.WsPath
+				}
+				if node.TransportHost != "" {
+					wsOpts["headers"] = map[string]interface{}{
+						"Host": node.TransportHost,
+					}
+				}
+				if len(wsOpts) > 0 {
+					add("ws-opts", wsOpts)
+				}
+			case "grpc":
+				if node.GrpcService != "" {
+					add("grpc-opts", map[string]interface{}{
+						"grpc-service-name": node.GrpcService,
+					})
+				}
+			}
+		}
+		// TLS 配置（只有启用时才添加）
+		if node.TlsEnabled {
 			add("tls", true)
-			add("servername", node.ServerName)
+			if node.ServerName != "" {
+				add("servername", node.ServerName)
+			}
 			add("skip-cert-verify", true)
 			add("client-fingerprint", "chrome")
 		}
@@ -633,6 +661,57 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("port", port)
 		add("uuid", user.UUID)
 		add("udp", true)
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			add("network", node.TransportType)
+			switch node.TransportType {
+			case "ws":
+				wsOpts := map[string]interface{}{}
+				if node.WsPath != "" {
+					wsOpts["path"] = node.WsPath
+				}
+				if node.TransportHost != "" {
+					wsOpts["headers"] = map[string]interface{}{
+						"Host": node.TransportHost,
+					}
+				}
+				if len(wsOpts) > 0 {
+					add("ws-opts", wsOpts)
+				}
+			case "grpc":
+				grpcOpts := map[string]interface{}{}
+				if node.GrpcService != "" {
+					grpcOpts["grpc-service-name"] = node.GrpcService
+				}
+				if len(grpcOpts) > 0 {
+					add("grpc-opts", grpcOpts)
+				}
+			case "h2":
+				h2Opts := map[string]interface{}{}
+				if node.TransportHost != "" {
+					h2Opts["host"] = []string{node.TransportHost}
+				}
+				if node.WsPath != "" {
+					h2Opts["path"] = node.WsPath
+				}
+				if len(h2Opts) > 0 {
+					add("h2-opts", h2Opts)
+				}
+			case "http":
+				httpOpts := map[string]interface{}{}
+				if node.TransportHost != "" {
+					httpOpts["headers"] = map[string]interface{}{
+						"Host": []string{node.TransportHost},
+					}
+				}
+				if node.WsPath != "" {
+					httpOpts["path"] = []string{node.WsPath}
+				}
+				if len(httpOpts) > 0 {
+					add("http-opts", httpOpts)
+				}
+			}
+		}
 		// TLS 和 Reality 配置
 		if node.TlsEnabled || node.RealityEnabled {
 			add("tls", true)
@@ -664,11 +743,39 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("port", port)
 		add("password", user.UUID)
 		add("udp", true)
-		if node.TlsEnabled && node.ServerName != "" {
-			add("sni", node.ServerName)
-			add("skip-cert-verify", true)
-			add("client-fingerprint", "chrome")
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			add("network", node.TransportType)
+			switch node.TransportType {
+			case "ws":
+				wsOpts := map[string]interface{}{}
+				if node.WsPath != "" {
+					wsOpts["path"] = node.WsPath
+				}
+				if node.TransportHost != "" {
+					wsOpts["headers"] = map[string]interface{}{
+						"Host": node.TransportHost,
+					}
+				}
+				if len(wsOpts) > 0 {
+					add("ws-opts", wsOpts)
+				}
+			case "grpc":
+				grpcOpts := map[string]interface{}{}
+				if node.GrpcService != "" {
+					grpcOpts["grpc-service-name"] = node.GrpcService
+				}
+				if len(grpcOpts) > 0 {
+					add("grpc-opts", grpcOpts)
+				}
+			}
 		}
+		// Trojan 协议必须有 TLS（参考 Sub-Store: delete proxy.tls，但需要 sni/skip-cert-verify 等字段）
+		if node.ServerName != "" {
+			add("sni", node.ServerName)
+		}
+		add("skip-cert-verify", true)
+		add("client-fingerprint", "chrome")
 
 	case "anytls":
 		add("type", "anytls")
@@ -677,11 +784,12 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("port", port)
 		add("password", user.UUID)
 		add("udp", true)
-		if node.TlsEnabled && node.ServerName != "" {
+		// AnyTLS 必须有 TLS
+		if node.ServerName != "" {
 			add("sni", node.ServerName)
-			add("skip-cert-verify", true)
-			add("client-fingerprint", "chrome")
 		}
+		add("skip-cert-verify", true)
+		add("client-fingerprint", "chrome")
 
 	case "shadowsocks":
 		add("type", "ss")
@@ -698,10 +806,12 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("server", host)
 		add("port", port)
 		add("password", user.UUID)
-		if node.TlsEnabled && node.ServerName != "" {
+		add("udp", true)
+		// Hysteria2 必须有 TLS
+		if node.ServerName != "" {
 			add("sni", node.ServerName)
-			add("skip-cert-verify", true)
 		}
+		add("skip-cert-verify", true)
 		if node.Hy2Obfs != "" {
 			add("obfs", node.Hy2Obfs)
 			add("obfs-password", node.Hy2ObfsPassword)
@@ -773,6 +883,13 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 	case "vmess":
 		outbound["type"] = "vmess"
 		outbound["uuid"] = user.UUID
+		outbound["security"] = "auto"
+		outbound["alter_id"] = 0
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			outbound["transport"] = buildSingBoxTransport(node)
+		}
+		// TLS 配置（只有启用时才添加）
 		if node.TlsEnabled {
 			outbound["tls"] = buildSingBoxTLS(node)
 		}
@@ -783,6 +900,11 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 		if node.Flow != "" {
 			outbound["flow"] = node.Flow
 		}
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			outbound["transport"] = buildSingBoxTransport(node)
+		}
+		// TLS 和 Reality 配置
 		if node.TlsEnabled || node.RealityEnabled {
 			outbound["tls"] = buildSingBoxTLS(node)
 		}
@@ -790,9 +912,12 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 	case "trojan":
 		outbound["type"] = "trojan"
 		outbound["password"] = user.UUID
-		if node.TlsEnabled {
-			outbound["tls"] = buildSingBoxTLS(node)
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			outbound["transport"] = buildSingBoxTransport(node)
 		}
+		// Trojan 协议必须有 TLS（根据 Sub-Store 参考实现）
+		outbound["tls"] = buildSingBoxTLS(node)
 
 	case "shadowsocks":
 		outbound["type"] = "shadowsocks"
@@ -802,9 +927,21 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 	case "hysteria2":
 		outbound["type"] = "hysteria2"
 		outbound["password"] = user.UUID // 使用用户 UUID 作为密码
-		if node.TlsEnabled {
-			outbound["tls"] = buildSingBoxTLS(node)
+		// Hysteria2 必须有 TLS
+		outbound["tls"] = buildSingBoxTLS(node)
+		// obfs 配置
+		if node.Hy2Obfs != "" {
+			outbound["obfs"] = map[string]interface{}{
+				"type":     node.Hy2Obfs,
+				"password": node.Hy2ObfsPassword,
+			}
 		}
+
+	case "anytls":
+		outbound["type"] = "anytls"
+		outbound["password"] = user.UUID
+		// AnyTLS 必须有 TLS
+		outbound["tls"] = buildSingBoxTLS(node)
 
 	default:
 		return nil
@@ -844,6 +981,46 @@ func buildSingBoxTLS(node *database.InboundNode) map[string]interface{} {
 	}
 
 	return tls
+}
+
+// buildSingBoxTransport 构建 sing-box 传输层配置
+func buildSingBoxTransport(node *database.InboundNode) map[string]interface{} {
+	transport := map[string]interface{}{
+		"type": node.TransportType,
+	}
+
+	switch node.TransportType {
+	case "ws":
+		if node.WsPath != "" {
+			transport["path"] = node.WsPath
+		}
+		if node.TransportHost != "" {
+			transport["headers"] = map[string]interface{}{
+				"Host": node.TransportHost,
+			}
+		}
+	case "grpc":
+		if node.GrpcService != "" {
+			transport["service_name"] = node.GrpcService
+		}
+	case "http", "h2":
+		transport["type"] = "http"
+		if node.TransportHost != "" {
+			transport["host"] = []string{node.TransportHost}
+		}
+		if node.WsPath != "" {
+			transport["path"] = node.WsPath
+		}
+	case "httpupgrade":
+		if node.WsPath != "" {
+			transport["path"] = node.WsPath
+		}
+		if node.TransportHost != "" {
+			transport["host"] = node.TransportHost
+		}
+	}
+
+	return transport
 }
 
 func generateV2RaySubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int) (string, error) {
@@ -897,23 +1074,76 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 			"port": port,
 			"id":   user.UUID,
 			"aid":  0,
-			"net":  "tcp",
+			"scy":  "auto",
 			"type": "none",
 		}
-		if node.TlsEnabled && node.ServerName != "" {
+		// 传输层配置 - 参考 Sub-Store V2RayN 格式
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			if node.TransportType == "http" {
+				// http 伪装：net=tcp, type=http
+				vmessConfig["net"] = "tcp"
+				vmessConfig["type"] = "http"
+				if node.WsPath != "" {
+					vmessConfig["path"] = node.WsPath
+				}
+				if node.TransportHost != "" {
+					vmessConfig["host"] = node.TransportHost
+				}
+			} else {
+				vmessConfig["net"] = node.TransportType
+				if node.TransportType == "ws" {
+					if node.WsPath != "" {
+						vmessConfig["path"] = node.WsPath
+					}
+					if node.TransportHost != "" {
+						vmessConfig["host"] = node.TransportHost
+					}
+				} else if node.TransportType == "grpc" && node.GrpcService != "" {
+					vmessConfig["path"] = node.GrpcService
+					vmessConfig["type"] = "gun"
+				} else if node.TransportType == "h2" {
+					if node.WsPath != "" {
+						vmessConfig["path"] = node.WsPath
+					}
+					if node.TransportHost != "" {
+						vmessConfig["host"] = node.TransportHost
+					}
+				}
+			}
+		} else {
+			vmessConfig["net"] = "tcp"
+		}
+		// TLS 配置（只有启用时才添加）
+		if node.TlsEnabled {
 			vmessConfig["tls"] = "tls"
-			vmessConfig["sni"] = node.ServerName
+			if node.ServerName != "" {
+				vmessConfig["sni"] = node.ServerName
+			}
+		} else {
+			vmessConfig["tls"] = ""
 		}
 		jsonData, _ := json.Marshal(vmessConfig)
 		return "vmess://" + base64.StdEncoding.EncodeToString(jsonData)
 
 	case "vless":
 		params := url.Values{}
-		params.Set("type", "tcp")
-		if node.TlsEnabled && node.ServerName != "" {
-			params.Set("security", "tls")
-			params.Set("sni", node.ServerName)
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			params.Set("type", node.TransportType)
+			if node.TransportType == "ws" {
+				if node.WsPath != "" {
+					params.Set("path", node.WsPath)
+				}
+				if node.TransportHost != "" {
+					params.Set("host", node.TransportHost)
+				}
+			} else if node.TransportType == "grpc" && node.GrpcService != "" {
+				params.Set("serviceName", node.GrpcService)
+			}
+		} else {
+			params.Set("type", "tcp")
 		}
+		// TLS / Reality 配置 - 参考 Sub-Store
 		if node.RealityEnabled && node.RealityPubkey != "" {
 			params.Set("security", "reality")
 			params.Set("pbk", node.RealityPubkey)
@@ -921,6 +1151,16 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 			if node.RealityServer != "" {
 				params.Set("sni", node.RealityServer)
 			}
+			params.Set("fp", "chrome")
+		} else if node.TlsEnabled {
+			params.Set("security", "tls")
+			if node.ServerName != "" {
+				params.Set("sni", node.ServerName)
+			}
+			params.Set("allowInsecure", "1")
+			params.Set("fp", "chrome")
+		} else {
+			params.Set("security", "none")
 		}
 		if node.Flow != "" {
 			params.Set("flow", node.Flow)
@@ -929,16 +1169,38 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 
 	case "trojan":
 		params := url.Values{}
-		if node.TlsEnabled && node.ServerName != "" {
-			params.Set("sni", node.ServerName)
+		// 传输层配置
+		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
+			params.Set("type", node.TransportType)
+			if node.TransportType == "ws" {
+				if node.WsPath != "" {
+					params.Set("path", node.WsPath)
+				}
+				if node.TransportHost != "" {
+					params.Set("host", node.TransportHost)
+				}
+			} else if node.TransportType == "grpc" && node.GrpcService != "" {
+				params.Set("serviceName", node.GrpcService)
+				params.Set("mode", "gun")
+			}
 		}
+		// TLS 配置（Trojan 必须有 TLS）- 参考 Sub-Store
+		if node.ServerName != "" {
+			params.Set("sni", node.ServerName)
+		} else {
+			params.Set("sni", host) // 默认使用 server 作为 SNI
+		}
+		params.Set("allowInsecure", "1")
+		params.Set("fp", "chrome")
 		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", user.UUID, host, port, params.Encode(), url.PathEscape(name))
 
 	case "anytls":
 		params := url.Values{}
-		if node.TlsEnabled && node.ServerName != "" {
+		// AnyTLS 必须有 TLS - 参考 Sub-Store
+		if node.ServerName != "" {
 			params.Set("sni", node.ServerName)
 		}
+		params.Set("insecure", "1") // 跳过证书验证
 		return fmt.Sprintf("anytls://%s@%s:%d?%s#%s", user.UUID, host, port, params.Encode(), url.PathEscape(name))
 
 	case "shadowsocks":
@@ -947,9 +1209,11 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 
 	case "hysteria2":
 		params := url.Values{}
-		if node.TlsEnabled && node.ServerName != "" {
+		// Hysteria2 必须有 TLS - 参考 Sub-Store
+		if node.ServerName != "" {
 			params.Set("sni", node.ServerName)
 		}
+		params.Set("insecure", "1") // 跳过证书验证
 		if node.Hy2Obfs != "" {
 			params.Set("obfs", node.Hy2Obfs)
 			params.Set("obfs-password", node.Hy2ObfsPassword)

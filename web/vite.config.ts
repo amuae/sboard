@@ -27,7 +27,8 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist',
+    outDir: '../cmd/sboard/web',
+    emptyOutDir: true,
     assetsDir: 'assets'
   }
 })

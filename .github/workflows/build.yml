@@ -47,7 +47,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: web-dist
-          path: web/dist
+          path: cmd/sboard/web
           retention-days: 1
 
   build-sboard:
@@ -66,22 +66,10 @@ jobs:
           - goos: linux
             goarch: arm
             goarm: 7
-          - goos: linux
-            goarch: 386
-          # Windows (386 不支持 modernc.org/sqlite)
-          - goos: windows
-            goarch: amd64
-          - goos: windows
-            goarch: arm64
           # macOS
           - goos: darwin
             goarch: amd64
           - goos: darwin
-            goarch: arm64
-          # FreeBSD
-          - goos: freebsd
-            goarch: amd64
-          - goos: freebsd
             goarch: arm64
 
     steps:
@@ -143,7 +131,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux
+          # Linux (主流架构，有核心支持)
           - goos: linux
             goarch: amd64
           - goos: linux
@@ -151,41 +139,16 @@ jobs:
           - goos: linux
             goarch: arm
             goarm: 7
-          - goos: linux
-            goarch: 386
-          - goos: linux
-            goarch: mips
-          - goos: linux
-            goarch: mipsle
-          - goos: linux
-            goarch: mips64
-          - goos: linux
-            goarch: mips64le
-          - goos: linux
-            goarch: riscv64
-          - goos: linux
-            goarch: s390x
           # Windows
           - goos: windows
             goarch: amd64
           - goos: windows
             goarch: arm64
-          - goos: windows
-            goarch: 386
           # macOS
           - goos: darwin
             goarch: amd64
           - goos: darwin
             goarch: arm64
-          # FreeBSD
-          - goos: freebsd
-            goarch: amd64
-          - goos: freebsd
-            goarch: arm64
-          - goos: freebsd
-            goarch: arm
-          - goos: freebsd
-            goarch: 386
 
     steps:
       - name: Checkout
@@ -196,6 +159,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Download cores (mihomo & sing-box)
+        run: |
+          # 使用 Go 构建工具下载对应平台的核心
+          go run ./cmd/build -os=${{ matrix.goos }} -arch=${{ matrix.goarch }} -only-download -v
 
       - name: Build agent
         env:
@@ -279,7 +247,7 @@ jobs:
             |------|------|------|
             | Linux | amd64 | [sboard_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_amd64.zip) |
             | Linux | arm64 | [sboard_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_arm64.zip) |
-            | Windows | amd64 | [sboard_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_amd64.zip) |
+            | Linux | armv7 | [sboard_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_armv7.zip) |
             | macOS | amd64 | [sboard_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_amd64.zip) |
             | macOS | arm64 | [sboard_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_arm64.zip) |
             
@@ -288,7 +256,9 @@ jobs:
             |------|------|------|
             | Linux | amd64 | [sboard-agent_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_amd64.zip) |
             | Linux | arm64 | [sboard-agent_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_arm64.zip) |
+            | Linux | armv7 | [sboard-agent_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_armv7.zip) |
             | Windows | amd64 | [sboard-agent_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_amd64.zip) |
+            | Windows | arm64 | [sboard-agent_windows_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_arm64.zip) |
             | macOS | amd64 | [sboard-agent_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_amd64.zip) |
             | macOS | arm64 | [sboard-agent_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_arm64.zip) |
             

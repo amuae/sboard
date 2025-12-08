@@ -66,7 +66,7 @@
 
     <!-- 账户设置模态框 -->
     <div class="modal fade" id="accountModal" tabindex="-1" ref="accountModalEl">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title"><i class="bi bi-gear"></i> 账户设置</h5>
@@ -87,6 +87,13 @@
                   :class="{ active: accountTab === 'password' }"
                   @click="accountTab = 'password'"
                 >修改密码</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button 
+                  class="nav-link" 
+                  :class="{ active: accountTab === 'oauth' }"
+                  @click="accountTab = 'oauth'; loadOAuthSettings()"
+                >OAuth 设置</button>
               </li>
             </ul>
             
@@ -117,6 +124,64 @@
                 <input type="password" class="form-control" v-model="confirmPassword" placeholder="请再次输入新密码">
               </div>
             </div>
+            
+            <!-- OAuth 设置 -->
+            <div v-if="accountTab === 'oauth'">
+              <div v-if="oauthLoading" class="text-center py-4">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <span class="ms-2">加载中...</span>
+              </div>
+              <div v-else>
+                <!-- GitHub OAuth -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-github"></i> GitHub OAuth</span>
+                    <div class="form-check form-switch mb-0">
+                      <input class="form-check-input" type="checkbox" id="githubEnabled" v-model="githubOAuth.enabled">
+                      <label class="form-check-label" for="githubEnabled">启用</label>
+                    </div>
+                  </div>
+                  <div class="card-body">
+                    <div class="mb-3">
+                      <label class="form-label">Client ID</label>
+                      <input type="text" class="form-control" v-model="githubOAuth.client_id" placeholder="GitHub OAuth Client ID">
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Client Secret</label>
+                      <input 
+                        type="password" 
+                        class="form-control" 
+                        v-model="githubOAuth.client_secret" 
+                        :placeholder="githubOAuth.has_secret ? '已配置（留空保持不变）' : '请输入 Client Secret'"
+                      >
+                      <div class="form-text">
+                        <i class="bi bi-shield-lock"></i> 
+                        Client Secret 存储在数据库中，不会写入配置文件
+                      </div>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">允许的用户 <small class="text-muted">(留空允许所有)</small></label>
+                      <input 
+                        type="text" 
+                        class="form-control" 
+                        v-model="githubOAuth.allowed_users_str" 
+                        placeholder="用逗号分隔多个 GitHub 用户名，如: user1,user2"
+                      >
+                      <div class="form-text">只有列表中的 GitHub 用户可以登录，留空则允许所有 GitHub 用户</div>
+                    </div>
+                    <div class="alert alert-info mb-0">
+                      <i class="bi bi-info-circle"></i>
+                      <strong>配置说明:</strong>
+                      <ol class="mb-0 ps-3 mt-2">
+                        <li>前往 <a href="https://github.com/settings/developers" target="_blank">GitHub Developer Settings</a></li>
+                        <li>创建 OAuth App，Callback URL 设置为: <code>{{ callbackUrl }}</code></li>
+                        <li>将生成的 Client ID 和 Client Secret 填入上方</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -134,7 +199,7 @@
 import { ref, computed, watch, onMounted, nextTick, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Modal, Toast } from 'bootstrap'
-import { logout as apiLogout, changeUsername, changePassword } from './api'
+import { logout as apiLogout, changeUsername, changePassword, getOAuthProvidersAdmin, saveOAuthProvider } from './api'
 
 const router = useRouter()
 const route = useRoute()
@@ -198,12 +263,53 @@ provide('showToast', showToast)
 // 账户设置模态框
 const accountModalEl = ref<HTMLElement | null>(null)
 const showAccountModal = ref(false)
-const accountTab = ref<'username' | 'password'>('username')
+const accountTab = ref<'username' | 'password' | 'oauth'>('username')
 const newUsername = ref('')
 const currentPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
 let accountModal: Modal | null = null
+
+// OAuth 设置
+const oauthLoading = ref(false)
+const githubOAuth = ref({
+  enabled: false,
+  client_id: '',
+  client_secret: '',
+  has_secret: false,
+  allowed_users: [] as string[],
+  allowed_users_str: ''
+})
+
+// 计算回调 URL
+const callbackUrl = computed(() => {
+  return `${window.location.origin}/api/auth/github/callback`
+})
+
+// 加载 OAuth 设置
+const loadOAuthSettings = async () => {
+  oauthLoading.value = true
+  try {
+    const res = await getOAuthProvidersAdmin()
+    if (res.data.success && res.data.data) {
+      const github = res.data.data.find((p: any) => p.name === 'github')
+      if (github) {
+        githubOAuth.value = {
+          enabled: github.enabled,
+          client_id: github.config?.client_id || '',
+          client_secret: '',
+          has_secret: github.config?.has_secret || false,
+          allowed_users: github.config?.allowed_users || [],
+          allowed_users_str: (github.config?.allowed_users || []).join(', ')
+        }
+      }
+    }
+  } catch (error: any) {
+    showToast('error', '错误', '加载 OAuth 设置失败')
+  } finally {
+    oauthLoading.value = false
+  }
+}
 
 watch(showAccountModal, (val) => {
   if (val && accountModal) {
@@ -217,6 +323,15 @@ const resetAccountForm = () => {
   newPassword.value = ''
   confirmPassword.value = ''
   accountTab.value = 'username'
+  // 重置 OAuth 表单
+  githubOAuth.value = {
+    enabled: false,
+    client_id: '',
+    client_secret: '',
+    has_secret: false,
+    allowed_users: [],
+    allowed_users_str: ''
+  }
 }
 
 const saveAccountSettings = async () => {
@@ -232,7 +347,7 @@ const saveAccountSettings = async () => {
       }
       await changeUsername(currentPassword.value, newUsername.value)
       showToast('success', '成功', '用户名修改成功')
-    } else {
+    } else if (accountTab.value === 'password') {
       if (!currentPassword.value || !newPassword.value || !confirmPassword.value) {
         showToast('error', '错误', '请填写所有密码字段')
         return
@@ -243,6 +358,20 @@ const saveAccountSettings = async () => {
       }
       await changePassword(currentPassword.value, newPassword.value, confirmPassword.value)
       showToast('success', '成功', '密码修改成功')
+    } else if (accountTab.value === 'oauth') {
+      // 保存 OAuth 设置
+      const allowedUsers = githubOAuth.value.allowed_users_str
+        .split(/[,，]/)
+        .map(s => s.trim())
+        .filter(s => s.length > 0)
+      
+      await saveOAuthProvider('github', {
+        enabled: githubOAuth.value.enabled,
+        client_id: githubOAuth.value.client_id,
+        client_secret: githubOAuth.value.client_secret || undefined,
+        allowed_users: allowedUsers
+      })
+      showToast('success', '成功', 'OAuth 设置已保存')
     }
     if (accountModal) {
       accountModal.hide()

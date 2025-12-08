@@ -1,24 +1,17 @@
 package handler
 
 import (
-	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sboard-go/sboard/internal/agent"
-	"github.com/sboard-go/sboard/internal/config"
 	"github.com/sboard-go/sboard/internal/database"
-	"golang.org/x/crypto/ssh"
-	"gopkg.in/yaml.v3"
 )
 
 // CreateServerRequest 创建服务器请求
@@ -34,9 +27,6 @@ type CreateServerRequest struct {
 	Node3      string `json:"node_3"`
 	CoreType   string `json:"core_type"`
 	DnsResolve string `json:"dns_resolve"`
-	DeployMode string `json:"deploy_mode"` // ssh / agent
-	SshUser    string `json:"ssh_user"`
-	SshKeyPath string `json:"ssh_key_path"`
 	Notes      string `json:"notes"`
 }
 
@@ -53,9 +43,6 @@ type UpdateServerRequest struct {
 	Node3      string `json:"node_3"`
 	CoreType   string `json:"core_type"`
 	DnsResolve string `json:"dns_resolve"`
-	DeployMode string `json:"deploy_mode"` // ssh / agent
-	SshUser    string `json:"ssh_user"`
-	SshKeyPath string `json:"ssh_key_path"`
 	Notes      string `json:"notes"`
 }
 
@@ -197,9 +184,6 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 	if req.Port == 0 {
 		req.Port = 22
 	}
-	if req.SshUser == "" {
-		req.SshUser = "root"
-	}
 	if req.CoreType == "" {
 		req.CoreType = "sing-box"
 	}
@@ -227,7 +211,6 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 		Node2:      req.Node2,
 		Node3:      req.Node3,
 		CoreType:   req.CoreType,
-		DeployMode: "agent",              // 始终使用 Agent 模式
 		AgentToken: generateAgentToken(), // 自动生成 Token
 		Notes:      req.Notes,
 	}
@@ -295,12 +278,6 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 		server.DnsResolve = req.DnsResolve
 	} else {
 		server.DnsResolve = "none"
-	}
-	if req.SshUser != "" {
-		server.SshUser = req.SshUser
-	}
-	if req.SshKeyPath != "" {
-		server.SshKeyPath = req.SshKeyPath
 	}
 	server.Notes = req.Notes
 
@@ -441,15 +418,13 @@ func (s *Server) handleDeployServer(c *gin.Context) {
 		return
 	}
 
-	// 根据部署模式选择不同的部署方式
-	if server.DeployMode == "agent" {
-		// Agent 模式
-		s.handleDeployServerViaAgent(c, &server, req.Type)
+	// 检查 Agent 是否在线
+	if !server.AgentOnline {
+		errorJSON(c, http.StatusBadRequest, "Agent 未在线，无法部署")
 		return
 	}
 
-	// SSH 模式 (默认)
-	s.handleDeployServerViaSSH(c, &server, req.Type)
+	s.handleDeployServerViaAgent(c, &server, req.Type)
 }
 
 // handleDeployServerViaAgent 通过 Agent 部署
@@ -555,615 +530,6 @@ func (s *Server) handleDeployServerViaAgent(c *gin.Context, server *database.Ser
 			"output": "配置部署完成！已同步配置并重启服务。",
 		})
 	}
-}
-
-// handleDeployServerViaSSH 通过 SSH 部署 (SSE)
-func (s *Server) handleDeployServerViaSSH(c *gin.Context, server *database.Server, _ string) {
-	// 获取服务器的节点配置
-	var nodeConfigs []database.ServerNodeConfig
-	database.DB.Where("server_id = ?", server.ID).Preload("Node").Find(&nodeConfigs)
-
-	// 获取所有启用的用户
-	var users []database.ProxyUser
-	database.DB.Where("enabled = ?", 1).Find(&users)
-
-	// 设置 SSE 头
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-
-	sendSSE := func(eventType, message string) {
-		c.SSEvent(eventType, message)
-		c.Writer.Flush()
-	}
-
-	sendSSE("message", fmt.Sprintf("开始部署服务器: %s (%s)", server.Name, server.Host))
-
-	// 连接 SSH
-	sendSSE("message", "正在连接服务器...")
-	client, err := connectSSH(server, s.config)
-	if err != nil {
-		sendSSE("error", fmt.Sprintf("SSH 连接失败: %s", err.Error()))
-		return
-	}
-	defer client.Close()
-	sendSSE("message", "SSH 连接成功")
-
-	// 生成配置
-	sendSSE("message", "正在生成核心配置...")
-	configContent, err := generateCoreConfig(server, nodeConfigs, users)
-	if err != nil {
-		sendSSE("error", fmt.Sprintf("生成配置失败: %s", err.Error()))
-		return
-	}
-	sendSSE("message", "配置生成成功")
-
-	// 上传配置
-	sendSSE("message", "正在上传配置文件...")
-	configPath := getConfigPath(server.CoreType)
-	if err := uploadFile(client, configPath, configContent); err != nil {
-		sendSSE("error", fmt.Sprintf("上传配置失败: %s", err.Error()))
-		return
-	}
-	sendSSE("message", "配置文件已上传")
-
-	// 重启服务
-	sendSSE("message", "正在重启核心服务...")
-	serviceName := getServiceName(server.CoreType)
-	if err := runSSHCommand(client, "systemctl restart "+serviceName, sendSSE); err != nil {
-		sendSSE("error", fmt.Sprintf("重启服务失败: %s", err.Error()))
-		return
-	}
-	sendSSE("message", "服务重启成功")
-
-	// 检查服务状态
-	sendSSE("message", "正在检查服务状态...")
-	if err := runSSHCommand(client, "systemctl is-active "+serviceName, sendSSE); err != nil {
-		sendSSE("warning", "服务可能未正常启动，请手动检查")
-	} else {
-		sendSSE("message", "服务运行正常")
-	}
-
-	sendSSE("success", "部署完成!")
-}
-
-// handleTestServer 测试服务器连接
-func (s *Server) handleTestServer(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		errorJSON(c, http.StatusBadRequest, "无效的服务器ID")
-		return
-	}
-
-	var server database.Server
-	if err := database.DB.First(&server, id).Error; err != nil {
-		errorJSON(c, http.StatusNotFound, "服务器不存在")
-		return
-	}
-
-	// 尝试连接
-	client, err := connectSSH(&server, s.config)
-	if err != nil {
-		errorJSON(c, http.StatusServiceUnavailable, fmt.Sprintf("连接失败: %s", err.Error()))
-		return
-	}
-	defer client.Close()
-
-	successMsgJSON(c, "连接成功")
-}
-
-// handleGetServerStatus 获取服务器状态
-func (s *Server) handleGetServerStatus(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		errorJSON(c, http.StatusBadRequest, "无效的服务器ID")
-		return
-	}
-
-	var server database.Server
-	if err := database.DB.First(&server, id).Error; err != nil {
-		errorJSON(c, http.StatusNotFound, "服务器不存在")
-		return
-	}
-
-	client, err := connectSSH(&server, s.config)
-	if err != nil {
-		successJSON(c, gin.H{
-			"connected":      false,
-			"error":          err.Error(),
-			"service_active": false,
-		})
-		return
-	}
-	defer client.Close()
-
-	// 检查服务状态
-	serviceName := getServiceName(server.CoreType)
-	session, err := client.NewSession()
-	if err != nil {
-		successJSON(c, gin.H{
-			"connected":      true,
-			"service_active": false,
-		})
-		return
-	}
-	defer session.Close()
-
-	output, err := session.CombinedOutput("systemctl is-active " + serviceName)
-	serviceActive := err == nil && strings.TrimSpace(string(output)) == "active"
-
-	successJSON(c, gin.H{
-		"connected":      true,
-		"service_active": serviceActive,
-		"core_type":      server.CoreType,
-	})
-}
-
-// SSH 辅助函数
-
-func connectSSH(server *database.Server, cfg *config.Config) (*ssh.Client, error) {
-	var authMethods []ssh.AuthMethod
-
-	// 使用密钥认证
-	if server.SshKeyPath != "" {
-		// 读取密钥文件
-		keyPath := server.SshKeyPath
-		keyContent, err := readFileContent(keyPath)
-		if err == nil {
-			signer, err := ssh.ParsePrivateKey([]byte(keyContent))
-			if err == nil {
-				authMethods = append(authMethods, ssh.PublicKeys(signer))
-			}
-		}
-	}
-
-	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("没有可用的认证方式，请检查 SSH 密钥配置")
-	}
-
-	sshConfig := &ssh.ClientConfig{
-		User:            server.SshUser,
-		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Duration(cfg.SSH.Timeout) * time.Second,
-	}
-
-	addr := net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
-	return ssh.Dial("tcp", addr, sshConfig)
-}
-
-func readFileContent(_ string) (string, error) {
-	// TODO: 使用 os.ReadFile 读取密钥文件
-	return "", fmt.Errorf("not implemented")
-}
-
-func uploadFile(client *ssh.Client, remotePath, content string) error {
-	session, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	// 使用 cat 命令写入文件
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := session.Start(fmt.Sprintf("cat > %s", remotePath)); err != nil {
-		return err
-	}
-
-	_, err = io.WriteString(stdin, content)
-	if err != nil {
-		return err
-	}
-
-	stdin.Close()
-	return session.Wait()
-}
-
-func runSSHCommand(client *ssh.Client, command string, sendSSE func(string, string)) error {
-	session, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	stderr, err := session.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := session.Start(command); err != nil {
-		return err
-	}
-
-	// 读取输出
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			sendSSE("output", scanner.Text())
-		}
-	}()
-
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			sendSSE("stderr", scanner.Text())
-		}
-	}()
-
-	return session.Wait()
-}
-
-func getConfigPath(core string) string {
-	switch core {
-	case "mihomo":
-		return "/etc/mihomo/config.yaml"
-	case "sing-box":
-		return "/etc/sing-box/config.json"
-	default:
-		return "/etc/sing-box/config.json"
-	}
-}
-
-func getServiceName(core string) string {
-	switch core {
-	case "mihomo":
-		return "mihomo"
-	case "sing-box":
-		return "sing-box"
-	default:
-		return "sing-box"
-	}
-}
-
-func generateCoreConfig(server *database.Server, nodeConfigs []database.ServerNodeConfig, users []database.ProxyUser) (string, error) {
-	switch server.CoreType {
-	case "mihomo":
-		return generateMihomoConfig(server, nodeConfigs, users)
-	case "sing-box":
-		return generateSingBoxConfig(server, nodeConfigs, users)
-	default:
-		return generateSingBoxConfig(server, nodeConfigs, users)
-	}
-}
-
-// 配置生成函数 - 为特定服务器生成入站配置
-func generateMihomoConfig(_ *database.Server, nodeConfigs []database.ServerNodeConfig, users []database.ProxyUser) (string, error) {
-	config := map[string]interface{}{
-		"log-level": "silent",
-		"listeners": []interface{}{},
-	}
-
-	// 构建用户 UUID 映射
-	userMap := make(map[uint]database.ProxyUser)
-	for _, u := range users {
-		userMap[u.ID] = u
-	}
-
-	listeners := []interface{}{}
-
-	for _, nc := range nodeConfigs {
-		if nc.Node.ID == 0 {
-			continue
-		}
-		node := nc.Node
-
-		// 获取该节点关联的启用用户
-		nodeUsers := getNodeUsersFromList(node.ID, users)
-		if len(nodeUsers) == 0 {
-			continue
-		}
-
-		// 构建 listener
-		listener := buildServerMihomoListener(&node, nodeUsers, &nc)
-		if listener != nil {
-			listeners = append(listeners, listener)
-		}
-	}
-
-	config["listeners"] = listeners
-
-	yamlData, err := yaml.Marshal(config)
-	if err != nil {
-		return "", err
-	}
-
-	return string(yamlData), nil
-}
-
-func generateSingBoxConfig(_ *database.Server, nodeConfigs []database.ServerNodeConfig, users []database.ProxyUser) (string, error) {
-	config := map[string]interface{}{
-		"log": map[string]interface{}{
-			"disabled": true,
-		},
-		"inbounds": []interface{}{},
-		"outbounds": []interface{}{
-			map[string]interface{}{
-				"type": "direct",
-				"tag":  "direct",
-			},
-		},
-	}
-
-	inbounds := []interface{}{}
-
-	for _, nc := range nodeConfigs {
-		if nc.Node.ID == 0 {
-			continue
-		}
-		node := nc.Node
-
-		// 获取该节点关联的启用用户
-		nodeUsers := getNodeUsersFromList(node.ID, users)
-		if len(nodeUsers) == 0 {
-			continue
-		}
-
-		// 构建 inbound
-		inbound := buildServerSingBoxInbound(&node, nodeUsers, &nc)
-		if inbound != nil {
-			inbounds = append(inbounds, inbound)
-		}
-	}
-
-	config["inbounds"] = inbounds
-
-	jsonData, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonData), nil
-}
-
-// getNodeUsersFromList 从用户列表中获取节点关联的用户
-func getNodeUsersFromList(nodeID uint, users []database.ProxyUser) []NodeUser {
-	var relations []database.NodeUserRelation
-	database.DB.Where("node_id = ?", nodeID).Find(&relations)
-
-	userMap := make(map[uint]database.ProxyUser)
-	for _, u := range users {
-		userMap[u.ID] = u
-	}
-
-	result := []NodeUser{}
-	for _, rel := range relations {
-		if user, ok := userMap[rel.UserID]; ok {
-			result = append(result, NodeUser{
-				Name:  user.Name,
-				UUID:  rel.UUID,
-				Flow:  rel.Flow,
-				Level: user.Level,
-			})
-		}
-	}
-	return result
-}
-
-// buildServerMihomoListener 为服务器构建 mihomo listener
-func buildServerMihomoListener(node *database.InboundNode, users []NodeUser, nc *database.ServerNodeConfig) map[string]interface{} {
-	// 使用转发端口
-	port := nc.ForwardPort
-	if port == 0 {
-		port = node.Port
-	}
-
-	listener := map[string]interface{}{
-		"name":   node.Tag,
-		"type":   node.Protocol,
-		"port":   port,
-		"listen": nc.ForwardHost,
-	}
-
-	// 用户配置（与全局配置相同）
-	switch node.Protocol {
-	case "anytls":
-		usersObj := map[string]string{}
-		for _, user := range users {
-			usersObj[user.Name] = user.UUID
-		}
-		listener["users"] = usersObj
-
-	case "vless":
-		usersArray := []map[string]interface{}{}
-		for _, user := range users {
-			userEntry := map[string]interface{}{
-				"username": user.Name,
-				"uuid":     user.UUID,
-			}
-			if user.Flow != "" {
-				userEntry["flow"] = user.Flow
-			}
-			usersArray = append(usersArray, userEntry)
-		}
-		listener["users"] = usersArray
-
-	case "vmess":
-		usersArray := []map[string]interface{}{}
-		for _, user := range users {
-			usersArray = append(usersArray, map[string]interface{}{
-				"username": user.Name,
-				"uuid":     user.UUID,
-				"alterId":  0,
-			})
-		}
-		listener["users"] = usersArray
-
-	case "trojan":
-		usersArray := []map[string]interface{}{}
-		for _, user := range users {
-			usersArray = append(usersArray, map[string]interface{}{
-				"username": user.Name,
-				"password": user.UUID,
-			})
-		}
-		listener["users"] = usersArray
-
-	case "shadowsocks":
-		method := node.SsMethod
-		if method == "" {
-			method = "aes-256-gcm"
-		}
-		listener["cipher"] = method
-		listener["password"] = node.SsPassword
-		listener["udp"] = true
-
-	case "hysteria2":
-		usersObj := map[string]string{}
-		password := node.Hy2Password
-		for _, user := range users {
-			if password != "" {
-				usersObj[user.Name] = password
-			} else {
-				usersObj[user.Name] = user.UUID
-			}
-		}
-		listener["users"] = usersObj
-		listener["up"] = node.Hy2UpMbps
-		listener["down"] = node.Hy2DownMbps
-	}
-
-	// TLS 配置
-	if node.TlsEnabled && node.Protocol != "shadowsocks" {
-		if node.RealityEnabled && node.RealityPrivkey != "" {
-			destServer := node.RealityServer
-			if destServer == "" {
-				destServer = "www.apple.com"
-			}
-			if !strings.Contains(destServer, ":") {
-				destServer += ":443"
-			}
-			listener["reality-config"] = map[string]interface{}{
-				"dest":         destServer,
-				"private-key":  node.RealityPrivkey,
-				"short-id":     []string{node.RealityShortId},
-				"server-names": []string{node.ServerName},
-			}
-		} else {
-			listener["certificate"] = "./server.crt"
-			listener["private-key"] = "./server.key"
-		}
-	}
-
-	return listener
-}
-
-// buildServerSingBoxInbound 为服务器构建 sing-box inbound
-func buildServerSingBoxInbound(node *database.InboundNode, users []NodeUser, nc *database.ServerNodeConfig) map[string]interface{} {
-	port := nc.ForwardPort
-	if port == 0 {
-		port = node.Port
-	}
-
-	inbound := map[string]interface{}{
-		"type":        node.Protocol,
-		"tag":         node.Tag,
-		"listen":      nc.ForwardHost,
-		"listen_port": port,
-	}
-
-	// 构建用户列表
-	userList := []map[string]interface{}{}
-	for _, user := range users {
-		userEntry := map[string]interface{}{"name": user.Name}
-
-		switch node.Protocol {
-		case "trojan":
-			userEntry["password"] = user.UUID
-		case "vless":
-			userEntry["uuid"] = user.UUID
-			if node.TlsEnabled && !node.TransportEnabled && user.Flow != "" {
-				userEntry["flow"] = user.Flow
-			}
-		case "vmess":
-			userEntry["uuid"] = user.UUID
-			userEntry["alterId"] = 0
-		case "anytls":
-			userEntry["password"] = user.UUID
-		case "shadowsocks":
-			userEntry["password"] = fmt.Sprintf("%x", []byte(user.UUID)[:16])
-		case "hysteria2":
-			if node.Hy2Password != "" {
-				userEntry["password"] = node.Hy2Password
-			} else {
-				userEntry["password"] = user.UUID
-			}
-		}
-		userList = append(userList, userEntry)
-	}
-
-	if node.Protocol == "shadowsocks" {
-		method := node.SsMethod
-		if method == "" {
-			method = "aes-256-gcm"
-		}
-		inbound["method"] = method
-		inbound["password"] = node.SsPassword
-		if strings.HasPrefix(method, "2022-") {
-			inbound["users"] = userList
-		}
-	} else {
-		inbound["users"] = userList
-		if node.Protocol == "hysteria2" {
-			inbound["up_mbps"] = node.Hy2UpMbps
-			inbound["down_mbps"] = node.Hy2DownMbps
-		}
-	}
-
-	// TLS 配置
-	if node.TlsEnabled && node.Protocol != "shadowsocks" {
-		tls := map[string]interface{}{
-			"enabled":     true,
-			"server_name": node.ServerName,
-		}
-
-		if node.RealityEnabled && node.RealityPubkey != "" && !node.TransportEnabled {
-			tls["reality"] = map[string]interface{}{
-				"enabled": true,
-				"handshake": map[string]interface{}{
-					"server":      node.RealityServer,
-					"server_port": 443,
-				},
-				"private_key": node.RealityPrivkey,
-				"short_id":    []string{node.RealityShortId},
-			}
-		} else {
-			tls["certificate_path"] = "/root/sing-box/server.crt"
-			tls["key_path"] = "/root/sing-box/server.key"
-		}
-
-		inbound["tls"] = tls
-	}
-
-	// 传输层配置
-	if node.TransportEnabled && !node.RealityEnabled {
-		transport := map[string]interface{}{}
-		switch node.TransportType {
-		case "ws":
-			transport["type"] = "ws"
-			transport["path"] = node.WsPath
-			if node.TransportHost != "" {
-				transport["headers"] = map[string]string{"Host": node.TransportHost}
-			}
-		case "grpc":
-			transport["type"] = "grpc"
-			transport["service_name"] = node.GrpcService
-		}
-		if len(transport) > 0 {
-			inbound["transport"] = transport
-		}
-	}
-
-	return inbound
 }
 
 // generateAgentToken 生成 Agent Token

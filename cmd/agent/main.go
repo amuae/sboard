@@ -35,7 +35,8 @@ import (
 var embeddedConfigs embed.FS
 
 var (
-	Version = "1.0.0"
+	Version        = "1.0.0"
+	serviceManager = NewServiceManager() // 平台特定的服务管理器
 )
 
 // Agent 配置
@@ -514,9 +515,9 @@ func (a *Agent) handleDeployFile(msg *Message) (*Message, error) {
 
 	log.Printf("已部署文件: %s", data.Path)
 
-	// 重启服务
+	// 重启服务 (使用平台特定的服务管理器)
 	if data.RestartSvc != "" {
-		exec.Command("systemctl", "restart", data.RestartSvc).Run()
+		serviceManager.RestartService(data.RestartSvc)
 	}
 
 	respData := map[string]interface{}{
@@ -611,7 +612,8 @@ func (a *Agent) handleSyncConfig(msg *Message) (*Message, error) {
 	// 确定配置路径
 	var configPath string
 	var serviceName string
-	switch strings.ToLower(data.ConfigType) {
+	coreType := strings.ToLower(data.ConfigType)
+	switch coreType {
 	case "sing-box":
 		configPath = filepath.Join(a.config.ConfigDir, "config.json")
 		serviceName = "sing-box"
@@ -642,10 +644,13 @@ func (a *Agent) handleSyncConfig(msg *Message) (*Message, error) {
 
 	log.Printf("配置已同步: %s (版本: %s)", configPath, configVersion[:8])
 
-	// 重启服务
+	// 重启服务 (使用平台特定的服务管理器)
 	if data.Restart {
-		exec.Command("systemctl", "restart", serviceName).Run()
-		log.Printf("服务已重启: %s", serviceName)
+		if err := serviceManager.RestartService(serviceName); err != nil {
+			log.Printf("重启服务失败: %v", err)
+		} else {
+			log.Printf("服务已重启: %s", serviceName)
+		}
 	}
 
 	respData := map[string]interface{}{
@@ -673,10 +678,9 @@ func (a *Agent) handleRestart(msg *Message) (*Message, error) {
 		serviceName = a.config.CoreType
 	}
 
-	cmd := exec.Command("systemctl", "restart", serviceName)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("重启失败: %s", string(output))
+	// 使用平台特定的服务管理器
+	if err := serviceManager.RestartService(serviceName); err != nil {
+		return nil, fmt.Errorf("重启失败: %v", err)
 	}
 
 	log.Printf("服务已重启: %s", serviceName)
@@ -785,39 +789,36 @@ func getPublicIPFromAPI() string {
 	return ""
 }
 
-// isServiceRunning 检查服务是否运行
-func isServiceRunning(service string) bool {
-	cmd := exec.Command("systemctl", "is-active", service)
-	output, _ := cmd.Output()
-	return strings.TrimSpace(string(output)) == "active"
-}
-
 // handleDeployCore 处理核心部署指令
 func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	var data struct {
 		CoreType   string `json:"core_type"`   // sing-box 或 mihomo
-		TargetPath string `json:"target_path"` // 目标安装路径，如 /root/sing-box
+		TargetPath string `json:"target_path"` // 目标安装路径
 		Config     string `json:"config"`      // 配置文件内容
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		return nil, fmt.Errorf("解析部署参数失败: %v", err)
 	}
 
-	log.Printf("开始部署核心: %s -> %s", data.CoreType, data.TargetPath)
+	// 如果未指定目标路径，使用平台默认路径
+	targetPath := data.TargetPath
+	if targetPath == "" {
+		targetPath = serviceManager.GetDefaultInstallPath(data.CoreType)
+	}
 
-	// 1. 确定嵌入资源路径和服务名
-	var embedPath, serviceName, configFileName, binaryName string
+	log.Printf("开始部署核心: %s -> %s (平台: %s/%s)", data.CoreType, targetPath, runtime.GOOS, runtime.GOARCH)
+
+	// 1. 确定嵌入资源路径和文件名
+	var embedPath string
+	serviceName := data.CoreType
+	binaryName := serviceManager.GetBinaryName(data.CoreType)
+	configFileName := serviceManager.GetConfigFileName(data.CoreType)
+
 	switch data.CoreType {
 	case "sing-box":
 		embedPath = "embed/configs/sing-box"
-		serviceName = "sing-box"
-		configFileName = "config.json"
-		binaryName = "sing-box"
 	case "mihomo":
 		embedPath = "embed/configs/mihomo"
-		serviceName = "mihomo"
-		configFileName = "config.yaml"
-		binaryName = "mihomo"
 	default:
 		return nil, fmt.Errorf("不支持的核心类型: %s", data.CoreType)
 	}
@@ -831,11 +832,20 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	}
 
 	// 3. 创建目标目录
-	if err := os.MkdirAll(data.TargetPath, 0755); err != nil {
+	if err := os.MkdirAll(targetPath, 0755); err != nil {
 		return nil, fmt.Errorf("创建目标目录失败: %v", err)
 	}
 
-	// 4. 从嵌入资源复制文件到目标目录
+	// 4. 检查二进制文件是否存在（已有或需要从嵌入资源复制）
+	binaryPath := filepath.Join(targetPath, binaryName)
+	binaryExists := false
+	if _, err := os.Stat(binaryPath); err == nil {
+		binaryExists = true
+		log.Printf("  发现现有二进制: %s", binaryPath)
+	}
+
+	// 5. 从嵌入资源复制文件到目标目录（证书等辅助文件）
+	embeddedBinaryFound := false
 	err := fs.WalkDir(embeddedConfigs, embedPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -843,16 +853,43 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 
 		// 计算相对路径
 		relPath, _ := filepath.Rel(embedPath, path)
-		if relPath == "." {
+
+		// 根据文件名决定操作
+		switch relPath {
+		case ".":
+			return nil
+		case configFileName, "config.json", "config.yaml":
+			// 跳过配置文件（后面会用传入的配置覆盖）
+			return nil
+		case "deploy.sh":
+			// 跳过 deploy.sh（不再需要）
 			return nil
 		}
 
-		// 跳过原始配置文件（如 config.json/config.yaml）
-		if relPath == configFileName {
+		// 跳过 .service 文件（Linux 特有，由 ServiceManager 处理）
+		if strings.HasSuffix(relPath, ".service") {
 			return nil
 		}
 
-		targetFile := filepath.Join(data.TargetPath, relPath)
+		// 处理二进制文件名（嵌入的是对应平台的，需要重命名）
+		var targetFileName string
+		isBinary := false
+		switch relPath {
+		case "sing-box", "sing-box.exe", "mihomo", "mihomo.exe":
+			targetFileName = binaryName
+			isBinary = true
+			embeddedBinaryFound = true
+		default:
+			targetFileName = relPath
+		}
+
+		// 如果已有二进制，跳过嵌入的二进制
+		if isBinary && binaryExists {
+			log.Printf("  跳过嵌入二进制（使用现有）: %s", relPath)
+			return nil
+		}
+
+		targetFile := filepath.Join(targetPath, targetFileName)
 
 		if d.IsDir() {
 			return os.MkdirAll(targetFile, 0755)
@@ -866,13 +903,13 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 
 		// 确定文件权限
 		mode := os.FileMode(0644)
-		// 二进制文件和脚本需要可执行权限
-		if relPath == binaryName || strings.HasSuffix(relPath, ".sh") {
+		// 二进制文件需要可执行权限 (Windows 会忽略)
+		if isBinary {
 			mode = 0755
 		}
 
-		// 写入目标文件，二进制和脚本用临时文件+rename原子替换，避免text file busy
-		if relPath == binaryName || strings.HasSuffix(relPath, ".sh") {
+		// 写入目标文件，二进制用临时文件+rename原子替换，避免text file busy
+		if isBinary {
 			tmpFile := targetFile + ".new"
 			if err := os.WriteFile(tmpFile, content, mode); err != nil {
 				return fmt.Errorf("写入临时文件失败 %s: %v", tmpFile, err)
@@ -885,76 +922,52 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 				return fmt.Errorf("写入文件失败 %s: %v", targetFile, err)
 			}
 		}
-		log.Printf("  复制文件: %s (权限: %o)", relPath, mode)
+		log.Printf("  复制文件: %s -> %s", relPath, targetFileName)
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("复制核心文件失败: %v", err)
 	}
 
-	// 5. 用指令中的配置内容覆盖配置文件
+	// 6. 检查二进制是否就绪
+	if !binaryExists && !embeddedBinaryFound {
+		return nil, fmt.Errorf("未找到 %s 二进制文件，请确保 Agent 编译时已嵌入对应平台的核心", data.CoreType)
+	}
+
+	// 7. 用指令中的配置内容覆盖配置文件
 	if data.Config != "" {
-		configPath := filepath.Join(data.TargetPath, configFileName)
+		configPath := filepath.Join(targetPath, configFileName)
 		if err := os.WriteFile(configPath, []byte(data.Config), 0644); err != nil {
 			return nil, fmt.Errorf("写入配置文件失败: %v", err)
 		}
 		log.Printf("  更新配置文件: %s", configPath)
 	}
 
-	// 6. 停止对侧核心服务（如果在运行）
-	if isServiceRunning(otherService) {
+	// 8. 停止对侧核心服务（如果在运行）
+	if serviceManager.IsServiceRunning(otherService) {
 		log.Printf("  检测到对侧服务 %s 正在运行，正在停止...", otherService)
-		stopCmd := exec.Command("systemctl", "stop", otherService)
-		if output, err := stopCmd.CombinedOutput(); err != nil {
-			log.Printf("  停止对侧服务失败: %s", string(output))
+		if err := serviceManager.StopService(otherService); err != nil {
+			log.Printf("  停止对侧服务失败: %v", err)
 		} else {
 			log.Printf("  对侧服务 %s 已停止", otherService)
 		}
 	}
 
-	// 7. 安装 systemd 服务
-	serviceFileName := serviceName + ".service"
-	serviceSourcePath := filepath.Join(data.TargetPath, serviceFileName)
-	serviceTargetPath := filepath.Join("/etc/systemd/system", serviceFileName)
-
-	// 读取服务文件并替换路径
-	serviceContent, err := os.ReadFile(serviceSourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("读取服务文件失败: %v", err)
+	// 9. 安装并启动服务 (使用平台特定的 ServiceManager)
+	log.Printf("  安装服务: %s", serviceName)
+	if err := serviceManager.InstallService(serviceName, targetPath, data.CoreType); err != nil {
+		return nil, fmt.Errorf("安装服务失败: %v", err)
 	}
 
-	// 替换服务文件中的路径为实际目标路径
-	serviceStr := string(serviceContent)
-	if data.CoreType == "sing-box" {
-		serviceStr = strings.ReplaceAll(serviceStr, "/root/sing-box", data.TargetPath)
-	} else {
-		serviceStr = strings.ReplaceAll(serviceStr, "/root/mihomo", data.TargetPath)
+	// 10. 启动服务
+	log.Printf("  启动服务: %s", serviceName)
+	if err := serviceManager.StartService(serviceName); err != nil {
+		log.Printf("  启动服务失败: %v", err)
 	}
 
-	// 写入 systemd 目录
-	if err := os.WriteFile(serviceTargetPath, []byte(serviceStr), 0644); err != nil {
-		return nil, fmt.Errorf("安装服务文件失败: %v", err)
-	}
-	log.Printf("  安装服务: %s", serviceTargetPath)
-
-	// 8. 重载 systemd 并启用服务
-	cmds := [][]string{
-		{"systemctl", "daemon-reload"},
-		{"systemctl", "enable", serviceName},
-		{"systemctl", "restart", serviceName},
-	}
-	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			log.Printf("  执行命令失败 %v: %s", args, string(output))
-			// 继续执行，不中断
-		}
-	}
-	log.Printf("  服务已启用并启动: %s", serviceName)
-
-	// 9. 检查服务状态
-	otherRunning := isServiceRunning(otherService)
-	currentRunning := isServiceRunning(serviceName)
+	// 11. 检查服务状态
+	otherRunning := serviceManager.IsServiceRunning(otherService)
+	currentRunning := serviceManager.IsServiceRunning(serviceName)
 
 	log.Printf("部署完成! %s: %v, %s: %v", serviceName, currentRunning, otherService, otherRunning)
 
@@ -962,11 +975,12 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	respData := map[string]interface{}{
 		"success":       true,
 		"core_type":     data.CoreType,
-		"target_path":   data.TargetPath,
+		"target_path":   targetPath,
 		"service_name":  serviceName,
 		"running":       currentRunning,
 		"other_service": otherService,
 		"other_running": otherRunning,
+		"platform":      runtime.GOOS + "/" + runtime.GOARCH,
 	}
 	rawData, _ := json.Marshal(respData)
 	return &Message{

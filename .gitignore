@@ -4,6 +4,12 @@
 /agent
 *.exe
 
+# Agent 嵌入目录（构建时下载）
+cmd/agent/embed/configs/mihomo/mihomo
+cmd/agent/embed/configs/mihomo/mihomo.exe
+cmd/agent/embed/configs/sing-box/sing-box
+cmd/agent/embed/configs/sing-box/sing-box.exe
+
 # 测试环境
 run-test/
 run-agent-test/
@@ -19,9 +25,7 @@ data/
 
 # 前端
 web/node_modules/
-web/dist/
-cmd/sboard/web/assets/
-!cmd/sboard/web/index.html
+cmd/sboard/web/*
 !cmd/sboard/web/.gitkeep
 
 # IDE

@@ -13,13 +13,16 @@ import (
 
 // Admin 管理员表
 type Admin struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	Username  string         `gorm:"uniqueIndex;size:50;not null" json:"username"`
-	Password  string         `gorm:"size:255;not null" json:"-"`
-	Email     string         `gorm:"size:100" json:"email"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID           uint           `gorm:"primaryKey" json:"id"`
+	Username     string         `gorm:"uniqueIndex;size:50;not null" json:"username"`
+	Password     string         `gorm:"size:255" json:"-"` // 本地账户密码，OAuth 用户可为空
+	Email        string         `gorm:"size:100" json:"email"`
+	AuthProvider string         `gorm:"size:20;default:local" json:"auth_provider"` // local, github
+	OAuthID      string         `gorm:"size:100;index" json:"-"`                    // OAuth 提供商的用户 ID
+	AvatarURL    string         `gorm:"size:255" json:"avatar_url"`                 // 头像 URL
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // SetPassword 设置密码 (bcrypt加密)
@@ -178,14 +181,7 @@ type Server struct {
 	// DNS 解析
 	DnsResolve string `gorm:"size:10;default:none" json:"dns_resolve"` // none/ipv4/ipv6
 
-	// 部署模式: ssh / agent
-	DeployMode string `gorm:"size:10;default:ssh" json:"deploy_mode"`
-
-	// SSH 配置 (deploy_mode=ssh)
-	SshUser    string `gorm:"size:50;default:root" json:"ssh_user"`
-	SshKeyPath string `gorm:"size:200;default:storage/ssh/id_rsa" json:"ssh_key_path"`
-
-	// Agent 配置 (deploy_mode=agent)
+	// Agent 配置
 	AgentToken    string     `gorm:"size:64" json:"agent_token"`        // Agent 认证 Token
 	AgentID       string     `gorm:"size:100" json:"agent_id"`          // Agent 唯一标识
 	AgentVersion  string     `gorm:"size:20" json:"agent_version"`      // Agent 版本
@@ -236,13 +232,33 @@ type ServerNodeConfig struct {
 
 	// 落地出站配置
 	OutboundEnabled  bool   `gorm:"default:false" json:"outbound_enabled"`
-	OutboundProtocol string `gorm:"size:20" json:"outbound_protocol"` // ss/trojan/anytls/socks5
+	OutboundProtocol string `gorm:"size:20" json:"outbound_protocol"` // ss/trojan/anytls/socks5/vless/vmess/hysteria2
 	OutboundHost     string `gorm:"size:100" json:"outbound_host"`
 	OutboundPort     int    `json:"outbound_port"`
 	OutboundPassword string `gorm:"size:200" json:"outbound_password"`
 	OutboundMethod   string `gorm:"size:50" json:"outbound_method"`   // Shadowsocks 加密方式
 	OutboundUsername string `gorm:"size:50" json:"outbound_username"` // SOCKS5 用户名
 	OutboundSni      string `gorm:"size:100" json:"outbound_sni"`     // TLS SNI
+
+	// VLESS/VMess 配置
+	OutboundUUID     string `gorm:"size:100" json:"outbound_uuid"`         // VLESS/VMess UUID
+	OutboundFlow     string `gorm:"size:50" json:"outbound_flow"`          // VLESS flow: xtls-rprx-vision
+	OutboundSecurity string `gorm:"size:50" json:"outbound_security"`      // VMess 加密方式
+	OutboundAlterId  int    `gorm:"default:0" json:"outbound_alter_id"`    // VMess alterId
+	OutboundTls      bool   `gorm:"default:false" json:"outbound_tls"`     // 是否启用 TLS
+	OutboundReality  bool   `gorm:"default:false" json:"outbound_reality"` // 是否启用 Reality
+	OutboundPubKey   string `gorm:"size:200" json:"outbound_pub_key"`      // Reality public key
+	OutboundShortId  string `gorm:"size:50" json:"outbound_short_id"`      // Reality short id
+	OutboundFp       string `gorm:"size:50" json:"outbound_fp"`            // uTLS fingerprint
+
+	// Hysteria2 配置
+	OutboundObfs    string `gorm:"size:50" json:"outbound_obfs"`      // Hysteria2 obfs 类型: salamander
+	OutboundObfsPwd string `gorm:"size:200" json:"outbound_obfs_pwd"` // Hysteria2 obfs 密码
+
+	// 传输层配置 (VMess/VLESS)
+	OutboundNetwork string `gorm:"size:20" json:"outbound_network"`  // tcp/ws/grpc/http
+	OutboundWsPath  string `gorm:"size:200" json:"outbound_ws_path"` // WebSocket path
+	OutboundWsHost  string `gorm:"size:200" json:"outbound_ws_host"` // WebSocket host header
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
@@ -272,4 +288,20 @@ type SystemConfig struct {
 	Description string    `gorm:"type:text" json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// OAuthProvider OAuth 提供商配置表
+type OAuthProvider struct {
+	Name      string    `gorm:"primaryKey;size:50;not null" json:"name"` // github, google 等
+	Enabled   bool      `gorm:"default:false" json:"enabled"`
+	Addition  string    `gorm:"type:text" json:"addition"` // JSON 格式存储具体配置
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GitHubOAuthAddition GitHub OAuth 配置详情
+type GitHubOAuthAddition struct {
+	ClientID     string   `json:"client_id"`
+	ClientSecret string   `json:"client_secret"`
+	AllowedUsers []string `json:"allowed_users"` // 允许登录的 GitHub 用户名列表
 }

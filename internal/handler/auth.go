@@ -20,6 +20,16 @@ type LoginRequest struct {
 
 // handleLogin 处理登录
 func (s *Server) handleLogin(c *gin.Context) {
+	// 检查是否禁用密码登录
+	if s.config.OAuth.DisablePasswordLogin {
+		// 检查是否有启用的 OAuth 提供商
+		_, githubEnabled, _ := database.GetGitHubOAuthConfig()
+		if githubEnabled {
+			errorJSON(c, http.StatusForbidden, "密码登录已禁用，请使用 OAuth 登录")
+			return
+		}
+	}
+
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误")
@@ -40,7 +50,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 			defaultAdmin.SetPassword("admin123")
 			database.DB.Create(defaultAdmin)
 			log.Printf("已创建默认管理员账户: admin / admin123")
-			
+
 			// 如果用户使用默认凭据登录
 			if req.Username == "admin" && req.Password == "admin123" {
 				admin = *defaultAdmin

@@ -66,12 +66,6 @@ func (s *Server) handleGetDeployFolder(c *gin.Context) {
 	storagePath := filepath.Join("storage", "configs", coreType)
 	addDirectoryToZip(zipWriter, storagePath, "")
 
-	// 3. 添加 SSH 密钥（如果存在）
-	sshKeyPath := filepath.Join("storage", "ssh", "id_rsa")
-	if data, err := os.ReadFile(sshKeyPath); err == nil {
-		addFileToZip(zipWriter, "id_rsa", data)
-	}
-
 	zipWriter.Close()
 
 	filename := fmt.Sprintf("%s-deploy-%s.zip", server.Name, coreType)
@@ -273,18 +267,22 @@ func generateSingBoxServerConfig(_ database.Server, nodes []database.InboundNode
 		}
 
 		// 传输层配置
-		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
-			transport := map[string]interface{}{"type": node.TransportType}
+		if node.TransportEnabled {
 			switch node.TransportType {
 			case "ws":
+				transport := map[string]interface{}{"type": "ws"}
 				transport["path"] = node.WsPath
 				if node.TransportHost != "" {
 					transport["headers"] = map[string]string{"Host": node.TransportHost}
 				}
+				inbound["transport"] = transport
 			case "grpc":
+				transport := map[string]interface{}{"type": "grpc"}
 				transport["service_name"] = node.GrpcService
+				inbound["transport"] = transport
+			case "", "tcp":
+				// tcp 不需要传输层配置
 			}
-			inbound["transport"] = transport
 		}
 
 		inbounds = append(inbounds, inbound)
@@ -318,12 +316,20 @@ func generateSingBoxServerConfig(_ database.Server, nodes []database.InboundNode
 				ob["password"] = nodeConfig.OutboundPassword
 			case "trojan":
 				ob["password"] = nodeConfig.OutboundPassword
-				if nodeConfig.OutboundSni != "" {
-					ob["tls"] = map[string]interface{}{
-						"enabled":     true,
-						"server_name": nodeConfig.OutboundSni,
-					}
+				// Trojan 必须启用 TLS
+				tls := map[string]interface{}{
+					"enabled":  true,
+					"insecure": true, // 跳过证书验证
 				}
+				if nodeConfig.OutboundSni != "" {
+					tls["server_name"] = nodeConfig.OutboundSni
+				}
+				// uTLS fingerprint
+				tls["utls"] = map[string]interface{}{
+					"enabled":     true,
+					"fingerprint": "chrome",
+				}
+				ob["tls"] = tls
 			case "socks5":
 				ob["type"] = "socks"
 				if nodeConfig.OutboundUsername != "" {
@@ -332,10 +338,141 @@ func generateSingBoxServerConfig(_ database.Server, nodes []database.InboundNode
 				}
 			case "anytls":
 				ob["password"] = nodeConfig.OutboundPassword
+				// AnyTLS 必须启用 TLS
+				tls := map[string]interface{}{
+					"enabled":  true,
+					"insecure": true, // 跳过证书验证
+				}
 				if nodeConfig.OutboundSni != "" {
-					ob["tls"] = map[string]interface{}{
+					tls["server_name"] = nodeConfig.OutboundSni
+				}
+				// uTLS fingerprint
+				tls["utls"] = map[string]interface{}{
+					"enabled":     true,
+					"fingerprint": "chrome",
+				}
+				ob["tls"] = tls
+			case "vless":
+				ob["uuid"] = nodeConfig.OutboundUUID
+				if nodeConfig.OutboundFlow != "" {
+					ob["flow"] = nodeConfig.OutboundFlow
+				}
+				// TLS 或 Reality 配置
+				if nodeConfig.OutboundReality {
+					// Reality 配置
+					tls := map[string]interface{}{
+						"enabled": true,
+						"reality": map[string]interface{}{
+							"enabled":    true,
+							"public_key": nodeConfig.OutboundPubKey,
+							"short_id":   nodeConfig.OutboundShortId,
+						},
+					}
+					if nodeConfig.OutboundSni != "" {
+						tls["server_name"] = nodeConfig.OutboundSni
+					}
+					// uTLS fingerprint
+					utls := map[string]interface{}{"enabled": true}
+					if nodeConfig.OutboundFp != "" {
+						utls["fingerprint"] = nodeConfig.OutboundFp
+					} else {
+						utls["fingerprint"] = "chrome"
+					}
+					tls["utls"] = utls
+					ob["tls"] = tls
+				} else if nodeConfig.OutboundTls {
+					tls := map[string]interface{}{
+						"enabled":  true,
+						"insecure": true, // 跳过证书验证
+					}
+					if nodeConfig.OutboundSni != "" {
+						tls["server_name"] = nodeConfig.OutboundSni
+					}
+					// uTLS fingerprint
+					tls["utls"] = map[string]interface{}{
 						"enabled":     true,
-						"server_name": nodeConfig.OutboundSni,
+						"fingerprint": "chrome",
+					}
+					ob["tls"] = tls
+				}
+				// 传输层配置
+				switch nodeConfig.OutboundNetwork {
+				case "ws":
+					transport := map[string]interface{}{"type": "ws"}
+					if nodeConfig.OutboundWsPath != "" {
+						transport["path"] = nodeConfig.OutboundWsPath
+					}
+					if nodeConfig.OutboundWsHost != "" {
+						transport["headers"] = map[string]interface{}{
+							"Host": nodeConfig.OutboundWsHost,
+						}
+					}
+					ob["transport"] = transport
+				case "grpc":
+					transport := map[string]interface{}{"type": "grpc"}
+					ob["transport"] = transport
+				case "", "tcp":
+					// tcp 不需要传输层配置
+				}
+			case "vmess":
+				ob["uuid"] = nodeConfig.OutboundUUID
+				ob["alter_id"] = nodeConfig.OutboundAlterId
+				if nodeConfig.OutboundSecurity != "" {
+					ob["security"] = nodeConfig.OutboundSecurity
+				} else {
+					ob["security"] = "auto"
+				}
+				// TLS 配置
+				if nodeConfig.OutboundTls {
+					tls := map[string]interface{}{
+						"enabled":  true,
+						"insecure": true, // 跳过证书验证
+					}
+					if nodeConfig.OutboundSni != "" {
+						tls["server_name"] = nodeConfig.OutboundSni
+					}
+					// uTLS fingerprint
+					tls["utls"] = map[string]interface{}{
+						"enabled":     true,
+						"fingerprint": "chrome",
+					}
+					ob["tls"] = tls
+				}
+				// 传输层配置
+				switch nodeConfig.OutboundNetwork {
+				case "ws":
+					transport := map[string]interface{}{"type": "ws"}
+					if nodeConfig.OutboundWsPath != "" {
+						transport["path"] = nodeConfig.OutboundWsPath
+					}
+					if nodeConfig.OutboundWsHost != "" {
+						transport["headers"] = map[string]interface{}{
+							"Host": nodeConfig.OutboundWsHost,
+						}
+					}
+					ob["transport"] = transport
+				case "grpc":
+					transport := map[string]interface{}{"type": "grpc"}
+					ob["transport"] = transport
+				case "", "tcp":
+					// tcp 不需要传输层配置
+				}
+			case "hysteria2":
+				ob["password"] = nodeConfig.OutboundPassword
+				// Hysteria2 必须启用 TLS
+				tls := map[string]interface{}{
+					"enabled":  true,
+					"insecure": true, // 跳过证书验证
+				}
+				if nodeConfig.OutboundSni != "" {
+					tls["server_name"] = nodeConfig.OutboundSni
+				}
+				ob["tls"] = tls
+				// obfs 配置（可选）
+				if nodeConfig.OutboundObfs != "" {
+					ob["obfs"] = map[string]interface{}{
+						"type":     nodeConfig.OutboundObfs,
+						"password": nodeConfig.OutboundObfsPwd,
 					}
 				}
 			}
@@ -414,10 +551,13 @@ func generateMihomoServerConfig(_ database.Server, nodes []database.InboundNode,
 		}
 
 		// 传输层
-		if node.TransportEnabled && node.TransportType == "ws" {
-			listener["ws-path"] = node.WsPath
-		} else if node.TransportEnabled && node.TransportType == "grpc" {
-			listener["grpc-service-name"] = node.GrpcService
+		if node.TransportEnabled {
+			switch node.TransportType {
+			case "ws":
+				listener["ws-path"] = node.WsPath
+			case "grpc":
+				listener["grpc-service-name"] = node.GrpcService
+			}
 		}
 
 		// 代理目标
@@ -443,6 +583,7 @@ func generateMihomoServerConfig(_ database.Server, nodes []database.InboundNode,
 				"type":   nodeConfig.OutboundProtocol,
 				"server": nodeConfig.OutboundHost,
 				"port":   nodeConfig.OutboundPort,
+				"udp":    true, // 启用 UDP 支持
 			}
 
 			switch nodeConfig.OutboundProtocol {
@@ -452,13 +593,126 @@ func generateMihomoServerConfig(_ database.Server, nodes []database.InboundNode,
 				proxy["password"] = nodeConfig.OutboundPassword
 			case "trojan":
 				proxy["password"] = nodeConfig.OutboundPassword
+				// Trojan 需要 TLS 配置
 				if nodeConfig.OutboundSni != "" {
 					proxy["sni"] = nodeConfig.OutboundSni
 				}
+				proxy["skip-cert-verify"] = true
+				proxy["client-fingerprint"] = "chrome"
 			case "socks5":
 				if nodeConfig.OutboundUsername != "" {
 					proxy["username"] = nodeConfig.OutboundUsername
 					proxy["password"] = nodeConfig.OutboundPassword
+				}
+			case "anytls":
+				proxy["type"] = "anytls"
+				proxy["password"] = nodeConfig.OutboundPassword
+				if nodeConfig.OutboundSni != "" {
+					proxy["sni"] = nodeConfig.OutboundSni
+				}
+				proxy["skip-cert-verify"] = true
+				proxy["client-fingerprint"] = "chrome"
+			case "vless":
+				proxy["uuid"] = nodeConfig.OutboundUUID
+				if nodeConfig.OutboundFlow != "" {
+					proxy["flow"] = nodeConfig.OutboundFlow
+				}
+				// Reality 或 TLS 配置
+				if nodeConfig.OutboundReality {
+					proxy["tls"] = true
+					proxy["reality-opts"] = map[string]interface{}{
+						"public-key": nodeConfig.OutboundPubKey,
+						"short-id":   nodeConfig.OutboundShortId,
+					}
+					if nodeConfig.OutboundSni != "" {
+						proxy["servername"] = nodeConfig.OutboundSni
+					}
+					// client fingerprint
+					if nodeConfig.OutboundFp != "" {
+						proxy["client-fingerprint"] = nodeConfig.OutboundFp
+					} else {
+						proxy["client-fingerprint"] = "chrome"
+					}
+				} else if nodeConfig.OutboundTls {
+					proxy["tls"] = true
+					if nodeConfig.OutboundSni != "" {
+						proxy["servername"] = nodeConfig.OutboundSni
+					}
+					proxy["skip-cert-verify"] = true
+					proxy["client-fingerprint"] = "chrome"
+				}
+				// 传输层配置
+				switch nodeConfig.OutboundNetwork {
+				case "ws":
+					proxy["network"] = "ws"
+					wsOpts := map[string]interface{}{}
+					if nodeConfig.OutboundWsPath != "" {
+						wsOpts["path"] = nodeConfig.OutboundWsPath
+					}
+					if nodeConfig.OutboundWsHost != "" {
+						wsOpts["headers"] = map[string]interface{}{
+							"Host": nodeConfig.OutboundWsHost,
+						}
+					}
+					if len(wsOpts) > 0 {
+						proxy["ws-opts"] = wsOpts
+					}
+				case "grpc":
+					proxy["network"] = "grpc"
+					// TODO: 需要添加 OutboundGrpcService 字段支持
+				case "", "tcp":
+					// tcp 不需要传输层配置
+				}
+			case "vmess":
+				proxy["uuid"] = nodeConfig.OutboundUUID
+				proxy["alterId"] = nodeConfig.OutboundAlterId
+				if nodeConfig.OutboundSecurity != "" {
+					proxy["cipher"] = nodeConfig.OutboundSecurity
+				} else {
+					proxy["cipher"] = "auto"
+				}
+				// TLS 配置
+				if nodeConfig.OutboundTls {
+					proxy["tls"] = true
+					if nodeConfig.OutboundSni != "" {
+						proxy["servername"] = nodeConfig.OutboundSni
+					}
+					proxy["skip-cert-verify"] = true
+					proxy["client-fingerprint"] = "chrome"
+				}
+				// 传输层配置
+				switch nodeConfig.OutboundNetwork {
+				case "ws":
+					proxy["network"] = "ws"
+					wsOpts := map[string]interface{}{}
+					if nodeConfig.OutboundWsPath != "" {
+						wsOpts["path"] = nodeConfig.OutboundWsPath
+					}
+					if nodeConfig.OutboundWsHost != "" {
+						wsOpts["headers"] = map[string]interface{}{
+							"Host": nodeConfig.OutboundWsHost,
+						}
+					}
+					if len(wsOpts) > 0 {
+						proxy["ws-opts"] = wsOpts
+					}
+				case "grpc":
+					proxy["network"] = "grpc"
+					// TODO: 需要添加 OutboundGrpcService 字段支持
+				case "", "tcp":
+					// tcp 不需要传输层配置
+				}
+			case "hysteria2":
+				proxy["password"] = nodeConfig.OutboundPassword
+				// Hysteria2 需要 TLS
+				if nodeConfig.OutboundSni != "" {
+					proxy["sni"] = nodeConfig.OutboundSni
+				}
+				proxy["skip-cert-verify"] = true
+				// obfs 配置（可选）
+				if nodeConfig.OutboundObfs != "" {
+					proxy["obfs"] = nodeConfig.OutboundObfs
+					proxy["obfs-password"] = nodeConfig.OutboundObfsPwd
 				}
 			}
 

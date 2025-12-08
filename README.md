@@ -7,21 +7,37 @@
 - 🚀 单二进制部署，无需依赖
 - 🌐 多协议支持 (VMess, VLESS, Trojan, Shadowsocks, Hysteria2)
 - 📋 订阅链接生成 (Mihomo, sing-box, V2Ray)
-- 📡 SSH 远程部署
-- 🖥️ 服务器监控 (Agent)
+- 📡 Agent 远程部署与管理
+- 🖥️ 服务器实时监控
+- 🔐 GitHub OAuth 登录 (可选)
+
+## 支持平台
+
+| 组件 | Linux | Windows | macOS |
+|------|-------|---------|-------|
+| 面板 (sboard) | amd64, arm64, armv7 | - | amd64, arm64 |
+| Agent | amd64, arm64, armv7 | amd64, arm64 | amd64, arm64 |
 
 ## 快速安装
 
-### 面板
+### 面板一键安装
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 ```
 
-### Agent (监控端)
+### Agent 一键卸载
+
+**Linux / macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-agent.sh | bash -s -- --panel https://your-panel.com --token YOUR_TOKEN
+curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
+```
+
+**Windows (PowerShell 管理员):**
+
+```powershell
+irm https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
 ```
 
 ## 服务管理

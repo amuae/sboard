@@ -88,14 +88,14 @@
                 <div class="speed-item">
                   <i class="bi bi-arrow-down text-info"></i>
                   <span class="speed-value">{{ formatSpeed(server.net_in || 0) }}</span>
-                  <span class="traffic-value text-muted">{{ formatBytes(server.monthly_in || 0) }}</span>
+                  <span class="traffic-value">{{ formatBytes(server.monthly_out || 0) }}</span>
                 </div>
               </div>
               <div class="col-6">
                 <div class="speed-item">
                   <i class="bi bi-arrow-up text-warning"></i>
                   <span class="speed-value">{{ formatSpeed(server.net_out || 0) }}</span>
-                  <span class="traffic-value text-muted">{{ formatBytes(server.monthly_out || 0) }}</span>
+                  <span class="traffic-value">{{ formatBytes(server.monthly_in || 0) }}</span>
                 </div>
               </div>
             </div>
@@ -378,18 +378,211 @@
                   </div>
                 </div>
                 <div class="card-body" v-if="nodeConfigData.outbound_enabled">
-                  <small class="text-muted d-block mb-2">配置落地服务器出站地址</small>
-                  <div class="row">
-                    <div class="col-8">
-                      <div class="mb-2">
-                        <label class="form-label small">出站地址 (IP/域名)</label>
-                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_host" placeholder="落地服务器地址">
+                  <small class="text-muted d-block mb-2">配置落地服务器出站（流量从此服务器转发到落地机）</small>
+                  
+                  <!-- 导入链接 -->
+                  <div class="row mb-3">
+                    <div class="col-12">
+                      <label class="form-label small">导入节点链接 (支持 vmess/vless/trojan/ss/hysteria2)</label>
+                      <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" v-model="importLink" placeholder="粘贴节点链接，如 vmess://... vless://... trojan://...">
+                        <button class="btn btn-outline-primary" type="button" @click="parseImportLink">
+                          <i class="bi bi-box-arrow-in-down"></i> 解析
+                        </button>
                       </div>
                     </div>
-                    <div class="col-4">
-                      <div class="mb-2">
-                        <label class="form-label small">出站端口</label>
-                        <input type="number" class="form-control form-control-sm" v-model.number="nodeConfigData.outbound_port" min="1" max="65535" placeholder="端口">
+                  </div>
+                  
+                  <div class="row">
+                    <div class="col-4 mb-2">
+                      <label class="form-label small">协议</label>
+                      <select class="form-select form-select-sm" v-model="nodeConfigData.outbound_protocol">
+                        <option value="shadowsocks">Shadowsocks</option>
+                        <option value="trojan">Trojan</option>
+                        <option value="socks5">SOCKS5</option>
+                        <option value="anytls">AnyTLS</option>
+                        <option value="vless">VLESS</option>
+                        <option value="vmess">VMess</option>
+                        <option value="hysteria2">Hysteria2</option>
+                      </select>
+                    </div>
+                    <div class="col-5 mb-2">
+                      <label class="form-label small">出站地址</label>
+                      <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_host" placeholder="落地服务器 IP/域名">
+                    </div>
+                    <div class="col-3 mb-2">
+                      <label class="form-label small">端口</label>
+                      <input type="number" class="form-control form-control-sm" v-model.number="nodeConfigData.outbound_port" min="1" max="65535">
+                    </div>
+                  </div>
+                  <!-- Shadowsocks 配置 -->
+                  <div class="row" v-if="nodeConfigData.outbound_protocol === 'shadowsocks'">
+                    <div class="col-6 mb-2">
+                      <label class="form-label small">加密方式</label>
+                      <select class="form-select form-select-sm" v-model="nodeConfigData.outbound_method">
+                        <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
+                        <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
+                        <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
+                        <option value="aes-128-gcm">aes-128-gcm</option>
+                        <option value="aes-256-gcm">aes-256-gcm</option>
+                        <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+                      </select>
+                    </div>
+                    <div class="col-6 mb-2">
+                      <label class="form-label small">密码</label>
+                      <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_password" placeholder="密码">
+                    </div>
+                  </div>
+                  <!-- Trojan/AnyTLS 配置 -->
+                  <div class="row" v-if="nodeConfigData.outbound_protocol === 'trojan' || nodeConfigData.outbound_protocol === 'anytls'">
+                    <div class="col-6 mb-2">
+                      <label class="form-label small">密码</label>
+                      <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_password" placeholder="密码">
+                    </div>
+                    <div class="col-6 mb-2">
+                      <label class="form-label small">SNI (可选)</label>
+                      <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_sni" placeholder="TLS SNI">
+                    </div>
+                  </div>
+                  <!-- SOCKS5 配置 -->
+                  <div class="row" v-if="nodeConfigData.outbound_protocol === 'socks5'">
+                    <div class="col-6 mb-2">
+                      <label class="form-label small">用户名 (可选)</label>
+                      <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_username" placeholder="用户名">
+                    </div>
+                    <div class="col-6 mb-2">
+                      <label class="form-label small">密码 (可选)</label>
+                      <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_password" placeholder="密码">
+                    </div>
+                  </div>
+                  <!-- VLESS 配置 -->
+                  <div v-if="nodeConfigData.outbound_protocol === 'vless'">
+                    <div class="row">
+                      <div class="col-8 mb-2">
+                        <label class="form-label small">UUID</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_uuid" placeholder="VLESS UUID">
+                      </div>
+                      <div class="col-4 mb-2">
+                        <label class="form-label small">Flow (可选)</label>
+                        <select class="form-select form-select-sm" v-model="nodeConfigData.outbound_flow">
+                          <option value="">无</option>
+                          <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="col-4 mb-2">
+                        <label class="form-label small">安全类型</label>
+                        <select class="form-select form-select-sm" v-model="vlessTlsType">
+                          <option value="none">无</option>
+                          <option value="tls">TLS</option>
+                          <option value="reality">Reality</option>
+                        </select>
+                      </div>
+                      <div class="col-4 mb-2" v-if="nodeConfigData.outbound_tls || nodeConfigData.outbound_reality">
+                        <label class="form-label small">SNI</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_sni" placeholder="TLS SNI">
+                      </div>
+                      <div class="col-4 mb-2" v-if="nodeConfigData.outbound_tls || nodeConfigData.outbound_reality">
+                        <label class="form-label small">Fingerprint</label>
+                        <select class="form-select form-select-sm" v-model="nodeConfigData.outbound_fp">
+                          <option value="chrome">chrome</option>
+                          <option value="firefox">firefox</option>
+                          <option value="safari">safari</option>
+                          <option value="edge">edge</option>
+                          <option value="random">random</option>
+                        </select>
+                      </div>
+                    </div>
+                    <!-- Reality 配置 -->
+                    <div class="row" v-if="nodeConfigData.outbound_reality">
+                      <div class="col-8 mb-2">
+                        <label class="form-label small">Public Key</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_pub_key" placeholder="Reality Public Key">
+                      </div>
+                      <div class="col-4 mb-2">
+                        <label class="form-label small">Short ID</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_short_id" placeholder="Short ID">
+                      </div>
+                    </div>
+                  </div>
+                  <!-- VMess 配置 -->
+                  <div v-if="nodeConfigData.outbound_protocol === 'vmess'">
+                    <div class="row">
+                      <div class="col-6 mb-2">
+                        <label class="form-label small">UUID</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_uuid" placeholder="VMess UUID">
+                      </div>
+                      <div class="col-3 mb-2">
+                        <label class="form-label small">加密方式</label>
+                        <select class="form-select form-select-sm" v-model="nodeConfigData.outbound_security">
+                          <option value="auto">auto</option>
+                          <option value="aes-128-gcm">aes-128-gcm</option>
+                          <option value="chacha20-poly1305">chacha20-poly1305</option>
+                          <option value="none">none</option>
+                          <option value="zero">zero</option>
+                        </select>
+                      </div>
+                      <div class="col-3 mb-2">
+                        <label class="form-label small">Alter ID</label>
+                        <input type="number" class="form-control form-control-sm" v-model.number="nodeConfigData.outbound_alter_id" min="0" placeholder="0">
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="col-4 mb-2">
+                        <label class="form-label small d-flex align-items-center gap-2">
+                          <input type="checkbox" class="form-check-input" v-model="nodeConfigData.outbound_tls"> 启用 TLS
+                        </label>
+                      </div>
+                      <div class="col-8 mb-2" v-if="nodeConfigData.outbound_tls">
+                        <label class="form-label small">SNI (可选)</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_sni" placeholder="TLS SNI">
+                      </div>
+                    </div>
+                    <!-- 传输层配置 -->
+                    <div class="row">
+                      <div class="col-4 mb-2">
+                        <label class="form-label small">传输层</label>
+                        <select class="form-select form-select-sm" v-model="nodeConfigData.outbound_network">
+                          <option value="">tcp (默认)</option>
+                          <option value="ws">WebSocket</option>
+                          <option value="grpc">gRPC</option>
+                          <option value="http">HTTP/2</option>
+                        </select>
+                      </div>
+                      <div class="col-4 mb-2" v-if="nodeConfigData.outbound_network === 'ws'">
+                        <label class="form-label small">WS Path</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_ws_path" placeholder="/">
+                      </div>
+                      <div class="col-4 mb-2" v-if="nodeConfigData.outbound_network === 'ws'">
+                        <label class="form-label small">WS Host</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_ws_host" placeholder="可选">
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Hysteria2 配置 -->
+                  <div v-if="nodeConfigData.outbound_protocol === 'hysteria2'">
+                    <div class="row">
+                      <div class="col-6 mb-2">
+                        <label class="form-label small">密码</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_password" placeholder="Hysteria2 密码">
+                      </div>
+                      <div class="col-6 mb-2">
+                        <label class="form-label small">SNI (可选)</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_sni" placeholder="TLS SNI">
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="col-4 mb-2">
+                        <label class="form-label small">Obfs 类型 (可选)</label>
+                        <select class="form-select form-select-sm" v-model="nodeConfigData.outbound_obfs">
+                          <option value="">无</option>
+                          <option value="salamander">salamander</option>
+                        </select>
+                      </div>
+                      <div class="col-8 mb-2" v-if="nodeConfigData.outbound_obfs">
+                        <label class="form-label small">Obfs 密码</label>
+                        <input type="text" class="form-control form-control-sm" v-model="nodeConfigData.outbound_obfs_pwd" placeholder="Obfs 密码">
                       </div>
                     </div>
                   </div>
@@ -410,7 +603,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, inject, computed } from 'vue'
 import { Modal } from 'bootstrap'
-import { getServers, createServer, updateServer, deleteServer, getNodes, deployServer, regenerateAgentToken, getServersStatus, reorderServers, type Server, type Node, type ServerStatus } from '@/api'
+import { getServers, createServer, updateServer, deleteServer, getNodes, deployServer, regenerateAgentToken, getServersStatus, reorderServers, getNodeConfigs, saveNodeConfig as saveNodeConfigApi, type Server, type Node, type ServerStatus, type NodeConfig } from '@/api'
 
 const showToast = inject<(type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void>('showToast')!
 
@@ -510,24 +703,233 @@ async function saveServerOrder() {
   }
 }
 
+// GitHub 脚本地址 (使用加速域名，万能入口自动检测系统)
+const GITHUB_SCRIPT_URL = 'https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-agent-auto.sh'
+
 // 计算 Agent 部署命令
 const agentDeployCommand = computed(() => {
   if (!formData.value.agent_token) return ''
   const panelUrl = window.location.origin
   const coreType = formData.value.core_type || 'sing-box'
-  return `curl -fsSL ${panelUrl}/install-agent.sh | sudo bash -s -- --token ${formData.value.agent_token} --panel ${panelUrl} --core ${coreType}`
+  return `curl -fsSL ${GITHUB_SCRIPT_URL} | bash -s -- --token ${formData.value.agent_token} --panel ${panelUrl} --core ${coreType}`
 })
 
 // 节点配置
 const selectedNode = ref<Node | null>(null)
 const nodeConfigData = ref({
+  listen_port: 0,
   forward_enabled: false,
   forward_host: '',
   forward_port: 0,
   outbound_enabled: false,
+  outbound_protocol: '',
   outbound_host: '',
-  outbound_port: 0
+  outbound_port: 0,
+  outbound_password: '',
+  outbound_method: '',
+  outbound_username: '',
+  outbound_sni: '',
+  // VLESS/VMess 配置
+  outbound_uuid: '',
+  outbound_flow: '',
+  outbound_security: 'auto',
+  outbound_alter_id: 0,
+  outbound_tls: false,
+  outbound_reality: false,
+  outbound_pub_key: '',
+  outbound_short_id: '',
+  outbound_fp: 'chrome',
+  // Hysteria2 配置
+  outbound_obfs: '',
+  outbound_obfs_pwd: '',
+  // 传输层配置 (VMess/VLESS)
+  outbound_network: '',
+  outbound_ws_path: '',
+  outbound_ws_host: ''
 })
+
+// 导入链接
+const importLink = ref('')
+
+// VLESS TLS 类型计算属性
+const vlessTlsType = computed({
+  get() {
+    if (nodeConfigData.value.outbound_reality) return 'reality'
+    if (nodeConfigData.value.outbound_tls) return 'tls'
+    return 'none'
+  },
+  set(value: string) {
+    nodeConfigData.value.outbound_tls = value === 'tls'
+    nodeConfigData.value.outbound_reality = value === 'reality'
+  }
+})
+
+// 解析导入链接
+function parseImportLink() {
+  const link = importLink.value.trim()
+  if (!link) {
+    showToast('warning', '提示', '请输入节点链接')
+    return
+  }
+
+  try {
+    // VMess 链接解析
+    if (link.startsWith('vmess://')) {
+      parseVmessLink(link)
+    }
+    // VLESS 链接解析
+    else if (link.startsWith('vless://')) {
+      parseVlessLink(link)
+    }
+    // Trojan 链接解析
+    else if (link.startsWith('trojan://')) {
+      parseTrojanLink(link)
+    }
+    // Shadowsocks 链接解析
+    else if (link.startsWith('ss://')) {
+      parseShadowsocksLink(link)
+    }
+    // Hysteria2 链接解析
+    else if (link.startsWith('hysteria2://') || link.startsWith('hy2://')) {
+      parseHysteria2Link(link)
+    }
+    else {
+      showToast('error', '错误', '不支持的链接格式')
+      return
+    }
+    
+    showToast('success', '成功', '节点信息已解析')
+    importLink.value = ''
+  } catch (error: any) {
+    showToast('error', '解析失败', error.message || '链接格式错误')
+  }
+}
+
+// 解析 VMess 链接 (v2rayN 格式)
+function parseVmessLink(link: string) {
+  const base64 = link.replace('vmess://', '')
+  const decoded = atob(base64)
+  const config = JSON.parse(decoded)
+  
+  nodeConfigData.value.outbound_protocol = 'vmess'
+  nodeConfigData.value.outbound_host = config.add || ''
+  nodeConfigData.value.outbound_port = parseInt(config.port) || 443
+  nodeConfigData.value.outbound_uuid = config.id || ''
+  nodeConfigData.value.outbound_alter_id = parseInt(config.aid) || 0
+  nodeConfigData.value.outbound_security = config.scy || 'auto'
+  nodeConfigData.value.outbound_tls = config.tls === 'tls'
+  nodeConfigData.value.outbound_sni = config.sni || config.host || ''
+  
+  // 传输层配置
+  const network = config.net || 'tcp'
+  nodeConfigData.value.outbound_network = network
+  if (network === 'ws') {
+    nodeConfigData.value.outbound_ws_path = config.path || '/'
+    nodeConfigData.value.outbound_ws_host = config.host || ''
+  }
+}
+
+// 解析 VLESS 链接
+function parseVlessLink(link: string) {
+  // vless://uuid@host:port?params#name
+  const url = new URL(link)
+  const params = new URLSearchParams(url.search)
+  
+  nodeConfigData.value.outbound_protocol = 'vless'
+  nodeConfigData.value.outbound_uuid = url.username
+  nodeConfigData.value.outbound_host = url.hostname
+  nodeConfigData.value.outbound_port = parseInt(url.port) || 443
+  nodeConfigData.value.outbound_flow = params.get('flow') || ''
+  nodeConfigData.value.outbound_sni = params.get('sni') || params.get('serverName') || ''
+  nodeConfigData.value.outbound_fp = params.get('fp') || 'chrome'
+  
+  const security = params.get('security') || params.get('type') || ''
+  if (security === 'reality') {
+    nodeConfigData.value.outbound_reality = true
+    nodeConfigData.value.outbound_tls = false
+    nodeConfigData.value.outbound_pub_key = params.get('pbk') || ''
+    nodeConfigData.value.outbound_short_id = params.get('sid') || ''
+  } else if (security === 'tls') {
+    nodeConfigData.value.outbound_tls = true
+    nodeConfigData.value.outbound_reality = false
+  } else {
+    nodeConfigData.value.outbound_tls = false
+    nodeConfigData.value.outbound_reality = false
+  }
+}
+
+// 解析 Trojan 链接
+function parseTrojanLink(link: string) {
+  // trojan://password@host:port?params#name
+  const url = new URL(link)
+  const params = new URLSearchParams(url.search)
+  
+  nodeConfigData.value.outbound_protocol = 'trojan'
+  nodeConfigData.value.outbound_password = decodeURIComponent(url.username)
+  nodeConfigData.value.outbound_host = url.hostname
+  nodeConfigData.value.outbound_port = parseInt(url.port) || 443
+  nodeConfigData.value.outbound_sni = params.get('sni') || params.get('peer') || ''
+}
+
+// 解析 Shadowsocks 链接
+function parseShadowsocksLink(link: string) {
+  // ss://base64(method:password)@host:port#name
+  // 或 ss://base64(method:password@host:port)#name
+  const withoutPrefix = link.replace('ss://', '')
+  const hashIndex = withoutPrefix.indexOf('#')
+  const mainPart = hashIndex > -1 ? withoutPrefix.substring(0, hashIndex) : withoutPrefix
+  
+  let method = '', password = '', host = '', port = 0
+  
+  if (mainPart.includes('@')) {
+    // 新格式: base64(method:password)@host:port
+    const [encoded, serverPart] = mainPart.split('@')
+    const decoded = atob(encoded)
+    const colonIndex = decoded.indexOf(':')
+    method = decoded.substring(0, colonIndex)
+    password = decoded.substring(colonIndex + 1)
+    
+    const [h, p] = serverPart.split(':')
+    host = h
+    port = parseInt(p) || 0
+  } else {
+    // 旧格式: base64(method:password@host:port)
+    const decoded = atob(mainPart)
+    const atIndex = decoded.lastIndexOf('@')
+    const userInfo = decoded.substring(0, atIndex)
+    const serverPart = decoded.substring(atIndex + 1)
+    
+    const colonIndex = userInfo.indexOf(':')
+    method = userInfo.substring(0, colonIndex)
+    password = userInfo.substring(colonIndex + 1)
+    
+    const [h, p] = serverPart.split(':')
+    host = h
+    port = parseInt(p) || 0
+  }
+  
+  nodeConfigData.value.outbound_protocol = 'shadowsocks'
+  nodeConfigData.value.outbound_host = host
+  nodeConfigData.value.outbound_port = port
+  nodeConfigData.value.outbound_method = method
+  nodeConfigData.value.outbound_password = password
+}
+
+// 解析 Hysteria2 链接
+function parseHysteria2Link(link: string) {
+  // hysteria2://password@host:port?params#name
+  // hy2://password@host:port?params#name
+  const url = new URL(link.replace('hysteria2://', 'hy2://').replace('hy2://', 'http://'))
+  const params = new URLSearchParams(url.search)
+  
+  nodeConfigData.value.outbound_protocol = 'hysteria2'
+  nodeConfigData.value.outbound_password = decodeURIComponent(url.username)
+  nodeConfigData.value.outbound_host = url.hostname
+  nodeConfigData.value.outbound_port = parseInt(url.port) || 443
+  nodeConfigData.value.outbound_sni = params.get('sni') || ''
+  nodeConfigData.value.outbound_obfs = params.get('obfs') || ''
+  nodeConfigData.value.outbound_obfs_pwd = params.get('obfs-password') || ''
+}
 
 function getDefaultFormData() {
   return {
@@ -806,23 +1208,101 @@ async function deployAll() {
   showToast('success', '成功', '全部部署完成')
 }
 
-function openNodeConfigModal(node: Node) {
+async function openNodeConfigModal(node: Node) {
   selectedNode.value = node
+  // 重置为默认值
   nodeConfigData.value = {
+    listen_port: node.port,
     forward_enabled: false,
     forward_host: '',
     forward_port: 0,
     outbound_enabled: false,
+    outbound_protocol: '',
     outbound_host: '',
-    outbound_port: 0
+    outbound_port: 0,
+    outbound_password: '',
+    outbound_method: '',
+    outbound_username: '',
+    outbound_sni: '',
+    // VLESS/VMess 配置
+    outbound_uuid: '',
+    outbound_flow: '',
+    outbound_security: 'auto',
+    outbound_alter_id: 0,
+    outbound_tls: false,
+    outbound_reality: false,
+    outbound_pub_key: '',
+    outbound_short_id: '',
+    outbound_fp: 'chrome',
+    // Hysteria2 配置
+    outbound_obfs: '',
+    outbound_obfs_pwd: '',
+    // 传输层配置 (VMess/VLESS)
+    outbound_network: '',
+    outbound_ws_path: '',
+    outbound_ws_host: ''
   }
+  
+  // 尝试加载已有配置
+  if (formData.value.id) {
+    try {
+      const res = await getNodeConfigs(formData.value.id)
+      const existing = res.data.data?.find((c: NodeConfig) => c.node_id === node.id)
+      if (existing) {
+        nodeConfigData.value = {
+          listen_port: existing.listen_port || node.port,
+          forward_enabled: existing.forward_enabled || false,
+          forward_host: existing.forward_host || '',
+          forward_port: existing.forward_port || 0,
+          outbound_enabled: existing.outbound_enabled || false,
+          outbound_protocol: existing.outbound_protocol || '',
+          outbound_host: existing.outbound_host || '',
+          outbound_port: existing.outbound_port || 0,
+          outbound_password: existing.outbound_password || '',
+          outbound_method: existing.outbound_method || '',
+          outbound_username: existing.outbound_username || '',
+          outbound_sni: existing.outbound_sni || '',
+          // VLESS/VMess 配置
+          outbound_uuid: existing.outbound_uuid || '',
+          outbound_flow: existing.outbound_flow || '',
+          outbound_security: existing.outbound_security || 'auto',
+          outbound_alter_id: existing.outbound_alter_id || 0,
+          outbound_tls: existing.outbound_tls || false,
+          outbound_reality: existing.outbound_reality || false,
+          outbound_pub_key: existing.outbound_pub_key || '',
+          outbound_short_id: existing.outbound_short_id || '',
+          outbound_fp: existing.outbound_fp || 'chrome',
+          // Hysteria2 配置
+          outbound_obfs: existing.outbound_obfs || '',
+          outbound_obfs_pwd: existing.outbound_obfs_pwd || '',
+          // 传输层配置 (VMess/VLESS)
+          outbound_network: existing.outbound_network || '',
+          outbound_ws_path: existing.outbound_ws_path || '',
+          outbound_ws_host: existing.outbound_ws_host || ''
+        }
+      }
+    } catch (error) {
+      console.error('加载节点配置失败:', error)
+    }
+  }
+  
   nodeConfigModal?.show()
 }
 
-function saveNodeConfig() {
-  // 保存节点配置
-  showToast('success', '成功', '节点配置已保存')
-  nodeConfigModal?.hide()
+async function saveNodeConfig() {
+  if (!formData.value.id || !selectedNode.value) {
+    showToast('error', '错误', '请先保存服务器')
+    return
+  }
+  
+  try {
+    await saveNodeConfigApi(formData.value.id, selectedNode.value.id, nodeConfigData.value)
+    showToast('success', '成功', '节点配置已保存')
+    nodeConfigModal?.hide()
+  } catch (error: any) {
+    console.error('保存节点配置失败:', error)
+    showToast('error', '错误', error.response?.data?.message || '保存失败')
+  }
 }
 
 // Agent 相关函数
@@ -1031,12 +1511,12 @@ async function regenerateToken() {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   padding: 0.25rem 0;
 }
 
 .speed-item i {
-  font-size: 0.7rem;
+  font-size: 0.85rem;
 }
 
 .speed-value {
@@ -1045,10 +1525,10 @@ async function regenerateToken() {
 }
 
 .traffic-value {
-  font-size: 0.65rem;
+  font-size: 0.875rem;
   font-family: 'Consolas', 'Monaco', monospace;
+  font-weight: 500;
   margin-left: auto;
-  opacity: 0.7;
 }
 
 .offline-info {

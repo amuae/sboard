@@ -42,6 +42,44 @@ export const logout = () => {
   return api.post('/auth/logout')
 }
 
+// OAuth 相关
+export const getOAuthProviders = () => {
+  return api.get('/auth/oauth/providers')
+}
+
+export const getGitHubLoginUrl = () => {
+  return api.get('/auth/github/login')
+}
+
+// OAuth 管理 API
+export interface OAuthProviderConfig {
+  name: string
+  label: string
+  enabled: boolean
+  config?: {
+    client_id: string
+    has_secret: boolean
+    allowed_users: string[]
+  }
+}
+
+export const getOAuthProvidersAdmin = () => {
+  return api.get<{ success: boolean; data: OAuthProviderConfig[]; disable_password_login: boolean }>('/oauth/providers')
+}
+
+export const getOAuthProvider = (name: string) => {
+  return api.get<{ success: boolean; data: OAuthProviderConfig }>(`/oauth/providers/${name}`)
+}
+
+export const saveOAuthProvider = (name: string, data: {
+  enabled: boolean
+  client_id: string
+  client_secret?: string
+  allowed_users: string[]
+}) => {
+  return api.post(`/oauth/providers/${name}`, data)
+}
+
 export const changeUsername = (password: string, newUsername: string) => {
   return api.post('/auth/change-username', { password, new_username: newUsername })
 }
@@ -177,10 +215,6 @@ export interface Server {
   node_3: string
   dns_resolve: string
   enabled: boolean
-  // 部署模式
-  deploy_mode: string  // ssh / agent
-  ssh_user: string
-  ssh_key_path: string
   // Agent 相关
   agent_token: string
   agent_id: string
@@ -203,8 +237,35 @@ export interface NodeConfig {
   id: number
   server_id: number
   node_id: number
-  config_type: string
-  listen: string
+  listen_port: number
+  forward_enabled: boolean
+  forward_host: string
+  forward_port: number
+  outbound_enabled: boolean
+  outbound_protocol: string
+  outbound_host: string
+  outbound_port: number
+  outbound_password: string
+  outbound_method: string
+  outbound_username: string
+  outbound_sni: string
+  // VLESS/VMess 配置
+  outbound_uuid: string
+  outbound_flow: string
+  outbound_security: string
+  outbound_alter_id: number
+  outbound_tls: boolean
+  outbound_reality: boolean
+  outbound_pub_key: string
+  outbound_short_id: string
+  outbound_fp: string
+  // Hysteria2 配置
+  outbound_obfs: string
+  outbound_obfs_pwd: string
+  // 传输层配置 (VMess/VLESS)
+  outbound_network: string
+  outbound_ws_path: string
+  outbound_ws_host: string
   created_at: string
   updated_at: string
   node?: Node
@@ -251,8 +312,8 @@ export const getNodeConfigs = (serverId: number) => {
   return api.get<NodeConfig[]>(`/servers/${serverId}/node-configs`)
 }
 
-export const addNodeConfig = (serverId: number, config: Partial<NodeConfig>) => {
-  return api.post<NodeConfig>(`/servers/${serverId}/node-configs`, config)
+export const saveNodeConfig = (serverId: number, nodeId: number, config: Partial<NodeConfig>) => {
+  return api.post<NodeConfig>(`/servers/${serverId}/node-configs/${nodeId}`, config)
 }
 
 export const deleteNodeConfig = (serverId: number, nodeId: number) => {

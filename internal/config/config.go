@@ -11,8 +11,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Data     DataConfig     `yaml:"data"`
 	Security SecurityConfig `yaml:"security"`
-	SSH      SSHConfig      `yaml:"ssh"`
-	Cores    map[string]CoreConfig `yaml:"cores"`
+	OAuth    OAuthConfig    `yaml:"oauth"`
 }
 
 // ServerConfig 服务器配置
@@ -33,18 +32,9 @@ type SecurityConfig struct {
 	SessionName   string `yaml:"session_name"`
 }
 
-// SSHConfig SSH配置
-type SSHConfig struct {
-	PrivateKeyPath string `yaml:"private_key_path"`
-	Timeout        int    `yaml:"timeout"`
-}
-
-// CoreConfig 代理核心配置
-type CoreConfig struct {
-	Name           string `yaml:"name"`
-	ConfigPath     string `yaml:"config_path"`
-	ConfigFile     string `yaml:"config_file"`
-	RestartCommand string `yaml:"restart_command"`
+// OAuthConfig OAuth 认证配置
+type OAuthConfig struct {
+	DisablePasswordLogin bool `yaml:"disable_password_login"` // 启用 OAuth 后禁用密码登录
 }
 
 // Default 返回默认配置
@@ -62,23 +52,8 @@ func Default() *Config {
 			JWTExpireHour: 168, // 7天
 			SessionName:   "sboard_token",
 		},
-		SSH: SSHConfig{
-			PrivateKeyPath: "~/.ssh/sboard_ed25519",
-			Timeout:        30,
-		},
-		Cores: map[string]CoreConfig{
-			"sing-box": {
-				Name:           "sing-box",
-				ConfigPath:     "/etc/sing-box/",
-				ConfigFile:     "config.json",
-				RestartCommand: "systemctl restart sing-box",
-			},
-			"mihomo": {
-				Name:           "mihomo",
-				ConfigPath:     "/etc/mihomo/",
-				ConfigFile:     "config.yaml",
-				RestartCommand: "systemctl restart mihomo",
-			},
+		OAuth: OAuthConfig{
+			DisablePasswordLogin: false,
 		},
 	}
 }

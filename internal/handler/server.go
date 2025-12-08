@@ -53,6 +53,9 @@ func (s *Server) setupRoutes() {
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", s.handleLogin)
+			auth.GET("/oauth/providers", s.handleGetOAuthProviders)
+			auth.GET("/github/login", s.handleGitHubLogin)
+			auth.GET("/github/callback", s.handleGitHubCallback)
 		}
 
 		// 需要认证的路由
@@ -99,8 +102,6 @@ func (s *Server) setupRoutes() {
 				servers.DELETE("/:id", s.handleDeleteServer)
 				servers.POST("/:id/nodes", s.handleSetServerNodes)
 				servers.POST("/:id/deploy", s.handleDeployServer)
-				servers.GET("/:id/test", s.handleTestServer)
-				servers.GET("/:id/status", s.handleGetServerStatus)
 				// 节点配置管理
 				servers.GET("/:id/node-configs", s.handleGetServerNodeConfigs)
 				servers.POST("/:id/node-configs/:nodeId", s.handleSaveServerNodeConfig)
@@ -120,6 +121,14 @@ func (s *Server) setupRoutes() {
 			protected.GET("/settings", s.handleGetSettings)
 			protected.POST("/settings", s.handleUpdateSettings)
 
+			// OAuth 管理
+			oauth := protected.Group("/oauth")
+			{
+				oauth.GET("/providers", s.handleGetOAuthProvidersAdmin)   // 获取所有提供商（管理）
+				oauth.GET("/providers/:name", s.handleGetOAuthProvider)   // 获取指定提供商
+				oauth.POST("/providers/:name", s.handleSaveOAuthProvider) // 保存提供商配置
+			}
+
 			// 配置预览
 			protected.GET("/config/preview", s.handlePreviewConfig)
 
@@ -138,8 +147,8 @@ func (s *Server) setupRoutes() {
 	// Agent WebSocket 端点（使用 token 认证）
 	s.router.GET("/api/agent/ws", s.handleAgentWebSocket)
 
-	// Agent 安装脚本和二进制下载（无需认证）
-	s.router.GET("/install-agent.sh", s.handleInstallAgentScript)
+	// Agent 二进制下载（无需认证）
+	// 安装脚本已移至 GitHub: https://github.com/amuae/sboard/blob/main/scripts/install-agent.sh
 	s.router.GET("/download/agent-linux-:arch", s.handleDownloadAgent)
 
 	// 静态文件服务（前端）
