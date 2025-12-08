@@ -1247,7 +1247,8 @@ async function openNodeConfigModal(node: Node) {
   if (formData.value.id) {
     try {
       const res = await getNodeConfigs(formData.value.id)
-      const existing = res.data.data?.find((c: NodeConfig) => c.node_id === node.id)
+      // 后端返回的是 map 格式，key 为 nodeId
+      const existing = res.data.data?.[node.id.toString()] as NodeConfig | undefined
       if (existing) {
         nodeConfigData.value = {
           listen_port: existing.listen_port || node.port,
