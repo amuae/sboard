@@ -37,10 +37,11 @@ $SERVICE_NAME = "sboard-agent"
 $BINARY_NAME = "sboard-agent.exe"
 $CONFIG_FILE = "agent.json"
 
-# GitHub 加速配置 (国内加速，支持 API 和下载)
-$GH_PROXY = "https://gh.llkk.cc/"
+# GitHub 加速配置 (国内加速)
+# API 代理 (gh.llkk.cc 支持 API)
 $GH_PROXY_API = "https://gh.llkk.cc/"
-# 备用加速: https://ghfast.top/ https://gh-proxy.com/ https://mirror.ghproxy.com/
+# 下载代理 (ghproxy.cn 速度快)
+$GH_PROXY = "https://ghproxy.cn/"
 
 # 颜色输出函数
 function Write-Info { Write-Host "[INFO] $args" -ForegroundColor Cyan }

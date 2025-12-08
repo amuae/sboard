@@ -26,8 +26,8 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# GitHub 加速
-GH_PROXY="https://gh.llkk.cc/"
+# GitHub 加速 (ghproxy.cn 下载速度快)
+GH_PROXY="https://ghproxy.cn/"
 REPO_URL="https://raw.githubusercontent.com/amuae/sboard/main/scripts"
 
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -107,7 +107,7 @@ show_windows_help() {
     echo '  .\install-agent.ps1 -Token "your_token" -Panel "https://panel.example.com"'
     echo ""
     echo -e "  ${GREEN}使用加速下载:${NC}"
-    echo '  irm https://gh.llkk.cc/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-agent.ps1 -OutFile install-agent.ps1'
+    echo '  irm https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-agent.ps1 -OutFile install-agent.ps1'
     echo ""
     exit 0
 }
