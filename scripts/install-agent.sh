@@ -29,9 +29,9 @@ BINARY_NAME="sboard-agent"
 CONFIG_FILE="agent.json"
 
 # GitHub 加速配置 (国内加速)
-GH_PROXY="https://ghfast.top/"
-GH_PROXY_API="https://ghfast.top/"
-# 备用加速: https://gh-proxy.com/ https://mirror.ghproxy.com/
+GH_PROXY="https://ghproxy.net/"
+GH_PROXY_API="https://ghproxy.net/"
+# 备用加速: https://gh-proxy.com/ https://mirror.ghproxy.com/ https://ghfast.top/
 
 # 服务文件路径
 SYSTEMD_SERVICE="/etc/systemd/system/${SERVICE_NAME}.service"
