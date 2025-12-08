@@ -143,6 +143,9 @@ func (s *Server) handleSaveServerNodeConfig(c *gin.Context) {
 		return
 	}
 
+	// 广播配置更新到该服务器的 Agent
+	go agentHub.BroadcastConfigUpdate()
+
 	successMsgJSON(c, "配置保存成功")
 }
 
@@ -165,6 +168,9 @@ func (s *Server) handleDeleteServerNodeConfig(c *gin.Context) {
 		errorJSON(c, http.StatusNotFound, "配置不存在")
 		return
 	}
+
+	// 广播配置更新到所有在线 Agent
+	go agentHub.BroadcastConfigUpdate()
 
 	successMsgJSON(c, "配置删除成功")
 }

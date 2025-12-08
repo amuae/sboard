@@ -76,6 +76,7 @@ const (
 	MsgTypeSyncConfig   MessageType = "sync_config"
 	MsgTypeRestart      MessageType = "restart"
 	MsgTypeDeployCore   MessageType = "deploy_core" // 部署核心
+	MsgTypeSelfUpdate   MessageType = "self_update" // 自我更新
 )
 
 // Message 消息结构
@@ -389,11 +390,17 @@ func (a *Agent) handleMessage(msg *Message) {
 	case MsgTypeDeployDir:
 		resp, err = a.handleDeployDir(msg)
 	case MsgTypeSyncConfig:
-		resp, err = a.handleSyncConfig(msg)
+		// 配置同步为单向通知，不返回响应
+		a.handleSyncConfig(msg)
+		return
 	case MsgTypeRestart:
 		resp, err = a.handleRestart(msg)
 	case MsgTypeDeployCore:
 		resp, err = a.handleDeployCore(msg)
+	case MsgTypeSelfUpdate:
+		// 自我更新为单向通知，不返回响应，异步执行
+		go a.handleSelfUpdate(msg)
+		return
 	case MsgTypeRegisterResp:
 		// 注册响应
 		if msg.Error != "" {
@@ -599,14 +606,15 @@ func (a *Agent) handleDeployDir(msg *Message) (*Message, error) {
 	}, nil
 }
 
-func (a *Agent) handleSyncConfig(msg *Message) (*Message, error) {
+func (a *Agent) handleSyncConfig(msg *Message) {
 	var data struct {
 		ConfigType string `json:"config_type"`
 		Content    string `json:"content"`
 		Restart    bool   `json:"restart"`
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
-		return nil, err
+		log.Printf("解析配置同步消息失败: %v", err)
+		return
 	}
 
 	// 确定配置路径
@@ -621,7 +629,8 @@ func (a *Agent) handleSyncConfig(msg *Message) (*Message, error) {
 		configPath = filepath.Join(a.config.ConfigDir, "config.yaml")
 		serviceName = "mihomo"
 	default:
-		return nil, fmt.Errorf("未知配置类型: %s", data.ConfigType)
+		log.Printf("未知配置类型: %s", data.ConfigType)
+		return
 	}
 
 	// 备份旧配置
@@ -632,10 +641,12 @@ func (a *Agent) handleSyncConfig(msg *Message) (*Message, error) {
 
 	// 写入新配置
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		return nil, err
+		log.Printf("创建配置目录失败: %v", err)
+		return
 	}
 	if err := os.WriteFile(configPath, []byte(data.Content), 0644); err != nil {
-		return nil, err
+		log.Printf("写入配置文件失败: %v", err)
+		return
 	}
 
 	// 计算配置版本
@@ -652,17 +663,6 @@ func (a *Agent) handleSyncConfig(msg *Message) (*Message, error) {
 			log.Printf("服务已重启: %s", serviceName)
 		}
 	}
-
-	respData := map[string]interface{}{
-		"success":        true,
-		"config_version": configVersion,
-	}
-	rawData, _ := json.Marshal(respData)
-	return &Message{
-		Type:      MsgTypeCommandResp,
-		Timestamp: time.Now().Unix(),
-		Data:      rawData,
-	}, nil
 }
 
 func (a *Agent) handleRestart(msg *Message) (*Message, error) {
@@ -988,4 +988,127 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 		Timestamp: time.Now().Unix(),
 		Data:      rawData,
 	}, nil
+}
+
+// handleSelfUpdate 处理自我更新指令（单向通知，不返回响应）
+func (a *Agent) handleSelfUpdate(_ *Message) {
+	// 延迟 2 秒执行，等待部署核心指令完成
+	time.Sleep(2 * time.Second)
+
+	log.Printf("开始自我更新 (平台: %s/%s)", runtime.GOOS, runtime.GOARCH)
+
+	// 确定下载 URL（使用 GitHub 加速域名）
+	// 格式: https://gh-proxy.com/github.com/amuae/sboard/releases/latest/download/agent-{os}-{arch}
+	osName := runtime.GOOS
+	archName := runtime.GOARCH
+
+	// 架构名称映射
+	switch archName {
+	case "amd64":
+		archName = "amd64"
+	case "arm64":
+		archName = "arm64"
+	case "386":
+		archName = "386"
+	}
+
+	// 文件名
+	fileName := fmt.Sprintf("agent-%s-%s", osName, archName)
+	if osName == "windows" {
+		fileName += ".exe"
+	}
+
+	// 下载 URL（使用加速域名）
+	downloadURL := fmt.Sprintf("https://gh-proxy.com/github.com/amuae/sboard/releases/latest/download/%s", fileName)
+
+	log.Printf("下载地址: %s", downloadURL)
+
+	// 获取当前可执行文件路径
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Printf("获取可执行文件路径失败: %v", err)
+		return
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		log.Printf("解析符号链接失败: %v", err)
+		return
+	}
+
+	// 下载新版本到临时文件
+	tempPath := execPath + ".new"
+	if err := downloadFile(downloadURL, tempPath); err != nil {
+		log.Printf("下载新版本失败: %v", err)
+		os.Remove(tempPath)
+		return
+	}
+
+	// 设置可执行权限
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(tempPath, 0755); err != nil {
+			log.Printf("设置权限失败: %v", err)
+			os.Remove(tempPath)
+			return
+		}
+	}
+
+	// 备份旧版本
+	backupPath := execPath + ".bak"
+	os.Remove(backupPath) // 删除旧备份
+	if err := os.Rename(execPath, backupPath); err != nil {
+		log.Printf("备份旧版本失败: %v", err)
+		os.Remove(tempPath)
+		return
+	}
+
+	// 替换为新版本
+	if err := os.Rename(tempPath, execPath); err != nil {
+		log.Printf("替换新版本失败: %v", err)
+		// 恢复旧版本
+		os.Rename(backupPath, execPath)
+		return
+	}
+
+	log.Printf("自我更新成功，正在重启服务...")
+
+	// 重启 agent 服务
+	if err := serviceManager.RestartService("sboard-agent"); err != nil {
+		log.Printf("重启服务失败: %v，尝试直接退出", err)
+		// 如果服务管理器重启失败，直接退出让 systemd 重启
+		os.Exit(0)
+	}
+}
+
+// downloadFile 下载文件
+func downloadFile(url, destPath string) error {
+	// 创建 HTTP 客户端，设置超时
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("HTTP 请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP 状态码: %d", resp.StatusCode)
+	}
+
+	// 创建目标文件
+	out, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %v", err)
+	}
+	defer out.Close()
+
+	// 写入文件
+	written, err := io.Copy(out, resp.Body)
+	if err != nil {
+		return fmt.Errorf("写入文件失败: %v", err)
+	}
+
+	log.Printf("下载完成: %d bytes", written)
+	return nil
 }

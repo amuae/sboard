@@ -23,6 +23,7 @@ const (
 	MsgTypeSyncConfig   MessageType = "sync_config"   // 同步配置
 	MsgTypeRestart      MessageType = "restart"       // 重启服务
 	MsgTypeDeployCore   MessageType = "deploy_core"   // 部署核心
+	MsgTypeSelfUpdate   MessageType = "self_update"   // 自我更新
 )
 
 // Message WebSocket 消息结构

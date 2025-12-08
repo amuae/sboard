@@ -97,6 +97,7 @@ func (s *Server) setupRoutes() {
 				servers.GET("/status", s.handleGetAllServersStatus) // 批量获取状态
 				servers.POST("", s.handleCreateServer)
 				servers.POST("/reorder", s.handleReorderServers) // 重新排序
+				servers.POST("/deploy-all", s.handleDeployAll)   // 全部部署（含自我更新）
 				servers.GET("/:id", s.handleGetServer)
 				servers.PUT("/:id", s.handleUpdateServer)
 				servers.DELETE("/:id", s.handleDeleteServer)

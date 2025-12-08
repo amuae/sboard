@@ -534,6 +534,9 @@ func (s *Server) handleBatchDeleteNodes(c *gin.Context) {
 		return
 	}
 
+	// 广播配置更新到所有在线 Agent
+	go agentHub.BroadcastConfigUpdate()
+
 	successMsgJSON(c, "批量删除成功，共删除 "+strconv.FormatInt(result.RowsAffected, 10)+" 个节点")
 }
 

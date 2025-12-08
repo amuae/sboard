@@ -29,6 +29,29 @@ type AgentConnection struct {
 	LastHeartbeat time.Time
 	Status        *agent.StatusData
 	mu            sync.RWMutex
+
+	// 心跳存活检测：记录最近的心跳时间戳
+	heartbeatTimes []time.Time
+}
+
+// IsAlive 判断 Agent 是否存活（12秒内心跳达到4次）
+func (c *AgentConnection) IsAlive() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.Conn == nil {
+		return false
+	}
+
+	// 统计 12 秒内的心跳次数
+	cutoff := time.Now().Add(-12 * time.Second)
+	count := 0
+	for _, t := range c.heartbeatTimes {
+		if t.After(cutoff) {
+			count++
+		}
+	}
+	return count >= 4
 }
 
 // AgentHub Agent 连接管理器
@@ -135,12 +158,25 @@ func (h *AgentHub) handleHeartbeat(conn *AgentConnection, msg *agent.Message) {
 		return
 	}
 
+	now := time.Now()
 	conn.mu.Lock()
-	conn.LastHeartbeat = time.Now()
+	conn.LastHeartbeat = now
 	if conn.Status == nil {
 		conn.Status = &agent.StatusData{}
 	}
 	conn.Status.HeartbeatData = data
+
+	// 记录心跳时间，用于存活判断
+	conn.heartbeatTimes = append(conn.heartbeatTimes, now)
+	// 清理 12 秒前的旧记录
+	cutoff := now.Add(-12 * time.Second)
+	validTimes := make([]time.Time, 0, len(conn.heartbeatTimes))
+	for _, t := range conn.heartbeatTimes {
+		if t.After(cutoff) {
+			validTimes = append(validTimes, t)
+		}
+	}
+	conn.heartbeatTimes = validTimes
 	conn.mu.Unlock()
 
 	// 更新数据库
@@ -209,7 +245,7 @@ func (h *AgentHub) handleCommandResp(msg *agent.Message) {
 	}
 }
 
-// SendCommand 发送命令到 Agent
+// SendCommand 发送命令到 Agent（等待响应）
 func (h *AgentHub) SendCommand(serverID uint, msg *agent.Message, timeout time.Duration) (*agent.Message, error) {
 	h.mu.RLock()
 	conn, ok := h.serverMap[serverID]
@@ -247,6 +283,22 @@ func (h *AgentHub) SendCommand(serverID uint, msg *agent.Message, timeout time.D
 	case <-time.After(timeout):
 		return nil, &TimeoutError{MsgID: msg.ID}
 	}
+}
+
+// SendNotify 发送单向通知到 Agent（不等待响应）
+func (h *AgentHub) SendNotify(serverID uint, msg *agent.Message) error {
+	h.mu.RLock()
+	conn, ok := h.serverMap[serverID]
+	h.mu.RUnlock()
+
+	if !ok || conn == nil {
+		return &AgentOfflineError{ServerID: serverID}
+	}
+
+	msg.ID = generateMsgID()
+	msg.Timestamp = time.Now().Unix()
+
+	return conn.Conn.WriteJSON(msg)
 }
 
 // IsAgentOnline 检查 Agent 是否在线
@@ -300,45 +352,69 @@ func (h *AgentHub) GetOnlineServers() []uint {
 	return serverIDs
 }
 
-// BroadcastConfigUpdate 向所有在线 Agent 广播配置更新
+// BroadcastConfigUpdate 向所有存活的 Agent 并发广播配置更新（单向通知，不等待响应）
+// 存活判断：12秒内心跳达到4次
 func (h *AgentHub) BroadcastConfigUpdate() {
-	serverIDs := h.GetOnlineServers()
-	if len(serverIDs) == 0 {
+	h.mu.RLock()
+	servers := make([]struct {
+		ID       uint
+		CoreType string
+		Conn     *websocket.Conn
+	}, 0, len(h.serverMap))
+
+	for serverID, conn := range h.serverMap {
+		// 只给存活的 Agent 发送
+		if conn != nil && conn.IsAlive() {
+			// 获取服务器核心类型
+			var server database.Server
+			if err := database.DB.Select("core_type").First(&server, serverID).Error; err == nil {
+				servers = append(servers, struct {
+					ID       uint
+					CoreType string
+					Conn     *websocket.Conn
+				}{serverID, server.CoreType, conn.Conn})
+			}
+		}
+	}
+	h.mu.RUnlock()
+
+	if len(servers) == 0 {
 		return
 	}
 
-	for _, serverID := range serverIDs {
-		go func(sid uint) {
-			// 获取服务器信息
+	// 并发生成配置并发送（单向通知）
+	for _, srv := range servers {
+		go func(serverID uint, coreType string, conn *websocket.Conn) {
+			// 获取完整服务器信息
 			var server database.Server
-			if err := database.DB.First(&server, sid).Error; err != nil {
+			if err := database.DB.First(&server, serverID).Error; err != nil {
 				return
 			}
 
 			// 生成配置
-			config, err := GenerateServerConfig(&server, server.CoreType)
+			config, err := GenerateServerConfig(&server, coreType)
 			if err != nil {
 				return
 			}
 
-			// 发送同步命令
+			// 构造消息
 			data := &agent.SyncConfigData{
-				ConfigType: server.CoreType,
+				ConfigType: coreType,
 				Content:    config,
 				Restart:    true,
 			}
 			rawData, _ := json.Marshal(data)
 
 			msg := &agent.Message{
-				Type: agent.MsgTypeSyncConfig,
-				Data: rawData,
+				ID:        generateMsgID(),
+				Type:      agent.MsgTypeSyncConfig,
+				Data:      rawData,
+				Timestamp: time.Now().Unix(),
 			}
 
-			_, err = h.SendCommand(sid, msg, 60*time.Second)
-			if err != nil {
-				// 同步失败时静默处理
-			}
-		}(serverID)
+			// 单向发送，不等待响应
+			conn.WriteJSON(msg)
+		}(srv.ID, srv.CoreType, srv.Conn)
 	}
 }
 
@@ -629,4 +705,125 @@ func parseUint(s string) uint64 {
 
 func generateMsgID() string {
 	return time.Now().Format("20060102150405.000000")
+}
+
+// handleDeployAll 全部部署（向所有存活 Agent 发送部署核心 + 自我更新指令）
+func (s *Server) handleDeployAll(c *gin.Context) {
+	// 获取所有启用的服务器
+	var servers []database.Server
+	if err := database.DB.Where("enabled = ?", true).Find(&servers).Error; err != nil {
+		errorJSON(c, http.StatusInternalServerError, "获取服务器列表失败")
+		return
+	}
+
+	if len(servers) == 0 {
+		errorJSON(c, http.StatusBadRequest, "没有启用的服务器")
+		return
+	}
+
+	// 收集存活的 Agent
+	type aliveServer struct {
+		Server   database.Server
+		Conn     *websocket.Conn
+		CoreType string
+	}
+	aliveServers := []aliveServer{}
+
+	agentHub.mu.RLock()
+	for _, server := range servers {
+		if conn, ok := agentHub.serverMap[server.ID]; ok && conn != nil && conn.IsAlive() {
+			aliveServers = append(aliveServers, aliveServer{
+				Server:   server,
+				Conn:     conn.Conn,
+				CoreType: server.CoreType,
+			})
+		}
+	}
+	agentHub.mu.RUnlock()
+
+	if len(aliveServers) == 0 {
+		errorJSON(c, http.StatusBadRequest, "没有存活的 Agent")
+		return
+	}
+
+	// 并发向所有存活 Agent 发送指令
+	var wg sync.WaitGroup
+	results := make([]map[string]interface{}, len(aliveServers))
+
+	for i, srv := range aliveServers {
+		wg.Add(1)
+		go func(idx int, srv aliveServer) {
+			defer wg.Done()
+
+			result := map[string]interface{}{
+				"server_id":   srv.Server.ID,
+				"server_name": srv.Server.Name,
+				"success":     false,
+			}
+
+			// 1. 生成配置
+			config, err := GenerateServerConfig(&srv.Server, srv.CoreType)
+			if err != nil {
+				result["error"] = "生成配置失败: " + err.Error()
+				results[idx] = result
+				return
+			}
+
+			// 2. 发送部署核心指令（等待响应）
+			deployCoreData := &agent.DeployCoreData{
+				CoreType:   srv.CoreType,
+				TargetPath: "/root/" + srv.CoreType,
+				Config:     config,
+			}
+			rawData, _ := json.Marshal(deployCoreData)
+			deployCoreMsg := &agent.Message{
+				ID:        generateMsgID(),
+				Type:      agent.MsgTypeDeployCore,
+				Data:      rawData,
+				Timestamp: time.Now().Unix(),
+			}
+
+			resp, err := agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 120*time.Second)
+			if err != nil {
+				result["error"] = "部署核心失败: " + err.Error()
+				results[idx] = result
+				return
+			}
+
+			if resp.Error != "" {
+				result["error"] = "部署核心失败: " + resp.Error
+				results[idx] = result
+				return
+			}
+
+			// 3. 发送自我更新指令（单向通知，不等待响应）
+			selfUpdateMsg := &agent.Message{
+				ID:        generateMsgID(),
+				Type:      agent.MsgTypeSelfUpdate,
+				Timestamp: time.Now().Unix(),
+			}
+			srv.Conn.WriteJSON(selfUpdateMsg)
+
+			result["success"] = true
+			result["message"] = "部署成功，Agent 正在自我更新"
+			results[idx] = result
+		}(i, srv)
+	}
+
+	wg.Wait()
+
+	// 统计结果
+	successCount := 0
+	for _, r := range results {
+		if r["success"] == true {
+			successCount++
+		}
+	}
+
+	successJSON(c, gin.H{
+		"total":   len(aliveServers),
+		"success": successCount,
+		"failed":  len(aliveServers) - successCount,
+		"results": results,
+	})
 }
