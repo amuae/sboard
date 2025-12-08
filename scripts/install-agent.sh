@@ -419,8 +419,16 @@ download_agent() {
 generate_config() {
     info "生成配置文件..."
     
-    # 获取主机名作为 Agent ID
-    AGENT_ID=$(hostname)
+    # 获取主机名作为 Agent ID (兼容 OpenWrt)
+    if command -v hostname &> /dev/null; then
+        AGENT_ID=$(hostname)
+    elif [[ -f /proc/sys/kernel/hostname ]]; then
+        AGENT_ID=$(cat /proc/sys/kernel/hostname)
+    elif [[ -f /etc/hostname ]]; then
+        AGENT_ID=$(cat /etc/hostname)
+    else
+        AGENT_ID="agent-$(date +%s)"
+    fi
     
     # 设置核心路径
     case "$CORE_TYPE" in
