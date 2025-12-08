@@ -29,8 +29,8 @@ BINARY_NAME="sboard-agent"
 CONFIG_FILE="agent.json"
 
 # GitHub 加速配置 (国内加速)
+# 注意: ghproxy.net 只支持下载加速，不支持 API 代理
 GH_PROXY="https://ghproxy.net/"
-GH_PROXY_API="https://ghproxy.net/"
 # 备用加速: https://gh-proxy.com/ https://mirror.ghproxy.com/ https://ghfast.top/
 
 # 服务文件路径
@@ -265,10 +265,11 @@ install_deps() {
 get_latest_version() {
     info "获取最新版本..."
     
-    LATEST_VERSION=$(curl -fsSL --connect-timeout 10 "${GH_PROXY_API}https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    # 直接访问 GitHub API (ghproxy.net 不支持 API 代理)
+    LATEST_VERSION=$(curl -fsSL --connect-timeout 10 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     
     if [[ -z "$LATEST_VERSION" ]]; then
-        error "无法获取最新版本，请检查网络连接"
+        error "无法获取最新版本，请检查网络连接（需能访问 api.github.com）"
     fi
     info "最新版本: $LATEST_VERSION"
 }
