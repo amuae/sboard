@@ -249,14 +249,20 @@ detect_arch() {
         x86_64|amd64)
             ARCH="amd64"
             ;;
+        i386|i486|i586|i686|x86)
+            ARCH="386"
+            ;;
         aarch64|arm64)
             ARCH="arm64"
             ;;
         armv7l|armv7)
             ARCH="armv7"
             ;;
+        armv6l|armv5l|arm)
+            ARCH="arm"
+            ;;
         *)
-            error "不支持的架构: $ARCH_TYPE，仅支持 amd64, arm64, armv7"
+            error "不支持的架构: $ARCH_TYPE，支持: amd64, 386, arm64, armv7, arm"
             ;;
     esac
     info "检测到架构: $ARCH"

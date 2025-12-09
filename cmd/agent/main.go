@@ -1021,6 +1021,10 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		archName = "arm64"
 	case "386":
 		archName = "386"
+	case "arm":
+		// 检查是否为 armv7
+		// Go 在 armv7 设备上报告为 "arm"，需要检查 GOARM
+		archName = "armv7" // 默认使用 armv7，兼容性更好
 	}
 
 	// 文件名

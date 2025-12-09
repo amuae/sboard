@@ -15,8 +15,8 @@
 
 | 组件 | Linux | Windows | macOS |
 |------|-------|---------|-------|
-| 面板 (sboard) | amd64, arm64, armv7 | - | amd64, arm64 |
-| Agent | amd64, arm64, armv7 | amd64, arm64 | amd64, arm64 |
+| 面板 (sboard) | amd64, 386, arm64, armv7, arm | amd64, arm64, 386 | amd64, arm64 |
+| Agent | amd64, 386, arm64, armv7, arm | amd64, arm64, 386 | amd64, arm64 |
 
 ## 快速安装
 

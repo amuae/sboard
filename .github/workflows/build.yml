@@ -62,10 +62,22 @@ jobs:
           - goos: linux
             goarch: amd64
           - goos: linux
+            goarch: 386
+          - goos: linux
             goarch: arm64
           - goos: linux
             goarch: arm
             goarm: 7
+          - goos: linux
+            goarch: arm
+            goarm: 6
+          # Windows
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: windows
+            goarch: 386
           # macOS
           - goos: darwin
             goarch: amd64
@@ -131,19 +143,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux (主流架构，有核心支持)
+          # Linux
           - goos: linux
             goarch: amd64
+          - goos: linux
+            goarch: 386
           - goos: linux
             goarch: arm64
           - goos: linux
             goarch: arm
             goarm: 7
+          - goos: linux
+            goarch: arm
+            goarm: 6
           # Windows
           - goos: windows
             goarch: amd64
           - goos: windows
             goarch: arm64
+          - goos: windows
+            goarch: 386
           # macOS
           - goos: darwin
             goarch: amd64
@@ -246,8 +265,13 @@ jobs:
             | 平台 | 架构 | 下载 |
             |------|------|------|
             | Linux | amd64 | [sboard_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_amd64.zip) |
+            | Linux | 386 | [sboard_linux_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_386.zip) |
             | Linux | arm64 | [sboard_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_arm64.zip) |
             | Linux | armv7 | [sboard_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_armv7.zip) |
+            | Linux | armv6 | [sboard_linux_armv6.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_armv6.zip) |
+            | Windows | amd64 | [sboard_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_amd64.zip) |
+            | Windows | arm64 | [sboard_windows_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_arm64.zip) |
+            | Windows | 386 | [sboard_windows_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_386.zip) |
             | macOS | amd64 | [sboard_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_amd64.zip) |
             | macOS | arm64 | [sboard_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_arm64.zip) |
             
@@ -255,10 +279,13 @@ jobs:
             | 平台 | 架构 | 下载 |
             |------|------|------|
             | Linux | amd64 | [sboard-agent_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_amd64.zip) |
+            | Linux | 386 | [sboard-agent_linux_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_386.zip) |
             | Linux | arm64 | [sboard-agent_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_arm64.zip) |
             | Linux | armv7 | [sboard-agent_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_armv7.zip) |
+            | Linux | armv6 | [sboard-agent_linux_armv6.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_armv6.zip) |
             | Windows | amd64 | [sboard-agent_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_amd64.zip) |
             | Windows | arm64 | [sboard-agent_windows_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_arm64.zip) |
+            | Windows | 386 | [sboard-agent_windows_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_386.zip) |
             | macOS | amd64 | [sboard-agent_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_amd64.zip) |
             | macOS | arm64 | [sboard-agent_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_arm64.zip) |
             

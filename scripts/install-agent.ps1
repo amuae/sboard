@@ -93,7 +93,9 @@ function Get-Architecture {
     switch ($arch) {
         "AMD64" { return "amd64" }
         "ARM64" { return "arm64" }
-        default { Write-Error "不支持的架构: $arch，仅支持 amd64, arm64" }
+        "x86" { return "386" }
+        "X86" { return "386" }
+        default { Write-Error "不支持的架构: $arch，支持: amd64, arm64, 386" }
     }
 }
 
