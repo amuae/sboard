@@ -181,8 +181,14 @@ jobs:
 
       - name: Download cores (mihomo & sing-box)
         run: |
+          # 确定架构名称 (arm + goarm -> armv6/armv7)
+          ARCH="${{ matrix.goarch }}"
+          if [ "$ARCH" = "arm" ] && [ -n "${{ matrix.goarm }}" ]; then
+            ARCH="armv${{ matrix.goarm }}"
+          fi
+          
           # 使用 Go 构建工具下载对应平台的核心
-          go run ./cmd/build -os=${{ matrix.goos }} -arch=${{ matrix.goarch }} -only-download -v
+          go run ./cmd/build -os=${{ matrix.goos }} -arch=${ARCH} -only-download -v
 
       - name: Build agent
         env:
