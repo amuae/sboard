@@ -130,9 +130,11 @@ func (s *Server) handleGetAllServersStatus(c *gin.Context) {
 
 	statuses := make([]ServerStatus, len(servers))
 	for i, srv := range servers {
+		// 使用实时的存活判断（12秒内心跳达到4次）
+		agentOnline := agentHub.IsAgentOnline(srv.ID)
 		statuses[i] = ServerStatus{
 			ID:          srv.ID,
-			AgentOnline: srv.AgentOnline,
+			AgentOnline: agentOnline,
 			CpuUsage:    srv.CpuUsage,
 			MemUsage:    srv.MemUsage,
 			DiskUsage:   srv.DiskUsage,
@@ -418,8 +420,8 @@ func (s *Server) handleDeployServer(c *gin.Context) {
 		return
 	}
 
-	// 检查 Agent 是否在线
-	if !server.AgentOnline {
+	// 检查 Agent 是否在线（12秒内心跳达到4次）
+	if !agentHub.IsAgentOnline(server.ID) {
 		errorJSON(c, http.StatusBadRequest, "Agent 未在线，无法部署")
 		return
 	}

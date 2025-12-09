@@ -301,12 +301,12 @@ func (h *AgentHub) SendNotify(serverID uint, msg *agent.Message) error {
 	return conn.Conn.WriteJSON(msg)
 }
 
-// IsAgentOnline 检查 Agent 是否在线
+// IsAgentOnline 检查 Agent 是否在线（12秒内心跳达到4次）
 func (h *AgentHub) IsAgentOnline(serverID uint) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	conn, ok := h.serverMap[serverID]
-	return ok && conn != nil
+	return ok && conn != nil && conn.IsAlive()
 }
 
 // GetAgentStatus 获取 Agent 状态
