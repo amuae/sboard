@@ -354,52 +354,47 @@ func (h *AgentHub) GetOnlineServers() []uint {
 
 // BroadcastConfigUpdate 向所有存活的 Agent 并发广播配置更新（单向通知，不等待响应）
 // 存活判断：12秒内心跳达到4次
+// 完全异步执行，不阻塞调用者
 func (h *AgentHub) BroadcastConfigUpdate() {
+	// 快速收集存活的 Agent 连接信息，尽快释放锁
 	h.mu.RLock()
-	servers := make([]struct {
-		ID       uint
-		CoreType string
+	aliveAgents := make([]struct {
+		ServerID uint
 		Conn     *websocket.Conn
 	}, 0, len(h.serverMap))
 
 	for serverID, conn := range h.serverMap {
-		// 只给存活的 Agent 发送
 		if conn != nil && conn.IsAlive() {
-			// 获取服务器核心类型
-			var server database.Server
-			if err := database.DB.Select("core_type").First(&server, serverID).Error; err == nil {
-				servers = append(servers, struct {
-					ID       uint
-					CoreType string
-					Conn     *websocket.Conn
-				}{serverID, server.CoreType, conn.Conn})
-			}
+			aliveAgents = append(aliveAgents, struct {
+				ServerID uint
+				Conn     *websocket.Conn
+			}{serverID, conn.Conn})
 		}
 	}
 	h.mu.RUnlock()
 
-	if len(servers) == 0 {
+	if len(aliveAgents) == 0 {
 		return
 	}
 
-	// 并发生成配置并发送（单向通知）
-	for _, srv := range servers {
-		go func(serverID uint, coreType string, conn *websocket.Conn) {
-			// 获取完整服务器信息
+	// 每个 Agent 独立的 goroutine 处理，完全异步
+	for _, agentInfo := range aliveAgents {
+		go func(serverID uint, conn *websocket.Conn) {
+			// 数据库查询在 goroutine 中执行，不阻塞主流程
 			var server database.Server
 			if err := database.DB.First(&server, serverID).Error; err != nil {
 				return
 			}
 
 			// 生成配置
-			config, err := GenerateServerConfig(&server, coreType)
+			config, err := GenerateServerConfig(&server, server.CoreType)
 			if err != nil {
 				return
 			}
 
 			// 构造消息
 			data := &agent.SyncConfigData{
-				ConfigType: coreType,
+				ConfigType: server.CoreType,
 				Content:    config,
 				Restart:    true,
 			}
@@ -414,7 +409,7 @@ func (h *AgentHub) BroadcastConfigUpdate() {
 
 			// 单向发送，不等待响应
 			conn.WriteJSON(msg)
-		}(srv.ID, srv.CoreType, srv.Conn)
+		}(agentInfo.ServerID, agentInfo.Conn)
 	}
 }
 
