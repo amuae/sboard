@@ -271,8 +271,16 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 		Notes:            req.Notes,
 	}
 
-	// 使用 Select("*") 强制插入所有字段，避免 GORM 对零值字段使用数据库默认值
-	if err := database.DB.Select("*").Create(&node).Error; err != nil {
+	// 明确列出所有字段，强制插入零值，避免 GORM 使用数据库默认值
+	if err := database.DB.Select(
+		"Tag", "Protocol", "Listen", "Port",
+		"TlsEnabled", "ServerName", "CertPath", "KeyPath",
+		"RealityEnabled", "RealityServer", "RealityPubkey", "RealityPrivkey", "RealityShortId",
+		"TransportEnabled", "TransportType", "WsPath", "GrpcService", "TransportHost",
+		"Flow", "SsMethod", "SsPassword",
+		"Hy2Password", "Hy2UpMbps", "Hy2DownMbps", "Hy2Obfs", "Hy2ObfsPassword",
+		"Enabled", "Notes",
+	).Create(&node).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "创建失败: "+err.Error())
 		return
 	}
