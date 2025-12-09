@@ -298,9 +298,7 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		case "ws":
 			transport["type"] = "ws"
 			transport["path"] = node.WsPath
-			if node.TransportHost != "" {
-				transport["headers"] = map[string]string{"Host": node.TransportHost}
-			}
+			// 服务端不需要验证 Host 头，由客户端订阅配置设置
 		case "grpc":
 			transport["type"] = "grpc"
 			transport["service_name"] = node.GrpcService
@@ -310,9 +308,7 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		case "httpupgrade":
 			transport["type"] = "httpupgrade"
 			transport["path"] = node.WsPath
-			if node.TransportHost != "" {
-				transport["host"] = node.TransportHost
-			}
+			// 服务端不需要验证 Host 头
 		}
 
 		if len(transport) > 0 {
