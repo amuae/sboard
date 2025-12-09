@@ -703,6 +703,7 @@ func generateMsgID() string {
 }
 
 // handleDeployAll 全部部署（向所有存活 Agent 发送部署核心 + 自我更新指令）
+// 异步执行，立即返回，不阻塞面板
 func (s *Server) handleDeployAll(c *gin.Context) {
 	// 获取所有启用的服务器
 	var servers []database.Server
@@ -741,84 +742,48 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 		return
 	}
 
-	// 并发向所有存活 Agent 发送指令
-	var wg sync.WaitGroup
-	results := make([]map[string]interface{}, len(aliveServers))
+	// 立即返回，后台异步执行部署
+	go func(aliveServers []aliveServer) {
+		for _, srv := range aliveServers {
+			go func(srv aliveServer) {
+				// 1. 生成配置
+				config, err := GenerateServerConfig(&srv.Server, srv.CoreType)
+				if err != nil {
+					return
+				}
 
-	for i, srv := range aliveServers {
-		wg.Add(1)
-		go func(idx int, srv aliveServer) {
-			defer wg.Done()
+				// 2. 发送部署核心指令（等待响应）
+				deployCoreData := &agent.DeployCoreData{
+					CoreType:   srv.CoreType,
+					TargetPath: "/root/" + srv.CoreType,
+					Config:     config,
+				}
+				rawData, _ := json.Marshal(deployCoreData)
+				deployCoreMsg := &agent.Message{
+					ID:        generateMsgID(),
+					Type:      agent.MsgTypeDeployCore,
+					Data:      rawData,
+					Timestamp: time.Now().Unix(),
+				}
 
-			result := map[string]interface{}{
-				"server_id":   srv.Server.ID,
-				"server_name": srv.Server.Name,
-				"success":     false,
-			}
+				resp, err := agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 120*time.Second)
+				if err != nil || resp.Error != "" {
+					return
+				}
 
-			// 1. 生成配置
-			config, err := GenerateServerConfig(&srv.Server, srv.CoreType)
-			if err != nil {
-				result["error"] = "生成配置失败: " + err.Error()
-				results[idx] = result
-				return
-			}
-
-			// 2. 发送部署核心指令（等待响应）
-			deployCoreData := &agent.DeployCoreData{
-				CoreType:   srv.CoreType,
-				TargetPath: "/root/" + srv.CoreType,
-				Config:     config,
-			}
-			rawData, _ := json.Marshal(deployCoreData)
-			deployCoreMsg := &agent.Message{
-				ID:        generateMsgID(),
-				Type:      agent.MsgTypeDeployCore,
-				Data:      rawData,
-				Timestamp: time.Now().Unix(),
-			}
-
-			resp, err := agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 120*time.Second)
-			if err != nil {
-				result["error"] = "部署核心失败: " + err.Error()
-				results[idx] = result
-				return
-			}
-
-			if resp.Error != "" {
-				result["error"] = "部署核心失败: " + resp.Error
-				results[idx] = result
-				return
-			}
-
-			// 3. 发送自我更新指令（单向通知，不等待响应）
-			selfUpdateMsg := &agent.Message{
-				ID:        generateMsgID(),
-				Type:      agent.MsgTypeSelfUpdate,
-				Timestamp: time.Now().Unix(),
-			}
-			srv.Conn.WriteJSON(selfUpdateMsg)
-
-			result["success"] = true
-			result["message"] = "部署成功，Agent 正在自我更新"
-			results[idx] = result
-		}(i, srv)
-	}
-
-	wg.Wait()
-
-	// 统计结果
-	successCount := 0
-	for _, r := range results {
-		if r["success"] == true {
-			successCount++
+				// 3. 发送自我更新指令（单向通知）
+				selfUpdateMsg := &agent.Message{
+					ID:        generateMsgID(),
+					Type:      agent.MsgTypeSelfUpdate,
+					Timestamp: time.Now().Unix(),
+				}
+				srv.Conn.WriteJSON(selfUpdateMsg)
+			}(srv)
 		}
-	}
+	}(aliveServers)
 
 	successJSON(c, gin.H{
+		"message": "全部部署任务已启动",
 		"total":   len(aliveServers),
-		"success": successCount,
-		"failed":  len(aliveServers) - successCount,
-		"results": results,
 	})
 }
