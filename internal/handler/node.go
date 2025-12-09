@@ -235,6 +235,11 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 		req.RealityShortId = generateRandomShortId()
 	}
 
+	// Shadowsocks 协议：如果密码为空，自动生成随机密码
+	if req.Protocol == "shadowsocks" && req.SsPassword == "" {
+		req.SsPassword = generateRandomPassword(32)
+	}
+
 	node := database.InboundNode{
 		Tag:              req.Tag,
 		Protocol:         req.Protocol,
@@ -266,7 +271,8 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 		Notes:            req.Notes,
 	}
 
-	if err := database.DB.Create(&node).Error; err != nil {
+	// 使用 Select("*") 强制插入所有字段，避免 GORM 对零值字段使用数据库默认值
+	if err := database.DB.Select("*").Create(&node).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "创建失败: "+err.Error())
 		return
 	}
@@ -549,4 +555,15 @@ func generateRandomShortId() string {
 	bytes := make([]byte, length)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+// generateRandomPassword 生成随机密码（用于 Shadowsocks）
+func generateRandomPassword(length int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	bytes := make([]byte, length)
+	rand.Read(bytes)
+	for i := range bytes {
+		bytes[i] = chars[int(bytes[i])%len(chars)]
+	}
+	return string(bytes)
 }

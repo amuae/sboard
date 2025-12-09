@@ -260,12 +260,15 @@
                   </div>
                 </div>
                 
-                <h6 class="mb-2"><i class="bi bi-eyeglasses"></i> Salamander 混淆</h6>
-                <div class="form-check mb-2">
-                  <input class="form-check-input" type="checkbox" v-model="formData.hy2_obfs_enabled" id="hy2ObfsEnabled">
-                  <label class="form-check-label" for="hy2ObfsEnabled">启用 Salamander 混淆（推荐）</label>
+                <h6 class="mb-2"><i class="bi bi-eyeglasses"></i> 混淆设置</h6>
+                <div class="mb-2">
+                  <label>混淆类型</label>
+                  <select class="form-select" v-model="formData.hy2_obfs">
+                    <option value="">不启用混淆</option>
+                    <option value="salamander">Salamander（推荐）</option>
+                  </select>
                 </div>
-                <div v-if="formData.hy2_obfs_enabled" id="hy2ObfsFields">
+                <div v-if="formData.hy2_obfs === 'salamander'" id="hy2ObfsFields">
                   <div class="mb-2">
                     <label>混淆密码 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" v-model="formData.hy2_obfs_password" placeholder="混淆密码（与认证密码不同）">
@@ -428,10 +431,11 @@ function getDefaultFormData() {
     grpc_service: 'GunService',
     flow: '',
     ss_method: 'aes-256-gcm',
+    ss_password: '',
     hy2_password: '',
     hy2_up_mbps: 100,
     hy2_down_mbps: 100,
-    hy2_obfs_enabled: false,
+    hy2_obfs: '',
     hy2_obfs_password: '',
     notes: '',
     enabled: true
@@ -521,10 +525,11 @@ function openEditModal(node: Node) {
     grpc_service: node.grpc_service || 'GunService',
     flow: node.flow || '',
     ss_method: node.ss_method || 'aes-256-gcm',
+    ss_password: node.ss_password || '',
     hy2_password: node.hy2_password || '',
     hy2_up_mbps: node.hy2_up_mbps || 100,
     hy2_down_mbps: node.hy2_down_mbps || 100,
-    hy2_obfs_enabled: node.hy2_obfs_enabled || false,
+    hy2_obfs: node.hy2_obfs || '',
     hy2_obfs_password: node.hy2_obfs_password || '',
     notes: node.notes || '',
     enabled: node.enabled
@@ -565,10 +570,11 @@ async function saveNode() {
       grpc_service: formData.value.grpc_service,
       flow: formData.value.flow,
       ss_method: formData.value.ss_method,
+      ss_password: formData.value.ss_password,
       hy2_password: formData.value.hy2_password,
       hy2_up_mbps: formData.value.hy2_up_mbps,
       hy2_down_mbps: formData.value.hy2_down_mbps,
-      hy2_obfs_enabled: formData.value.hy2_obfs_enabled,
+      hy2_obfs: formData.value.hy2_obfs,
       hy2_obfs_password: formData.value.hy2_obfs_password,
       notes: formData.value.notes,
       enabled: formData.value.enabled

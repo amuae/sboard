@@ -149,7 +149,7 @@ export interface Node {
   hy2_password: string
   hy2_up_mbps: number
   hy2_down_mbps: number
-  hy2_obfs_enabled: boolean
+  hy2_obfs: string
   hy2_obfs_password: string
   notes: string
   enabled: boolean
