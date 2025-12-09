@@ -388,8 +388,9 @@ func buildMihomoListener(node *database.InboundNode, users []NodeUser) *yaml.Nod
 
 	// TLS 配置
 	if node.TlsEnabled && node.Protocol != "shadowsocks" {
-		if node.RealityEnabled && node.RealityPrivkey != "" {
+		if node.RealityEnabled && node.RealityPrivkey != "" && !node.TransportEnabled {
 			// Reality 配置 (mihomo 使用 reality-config)
+			// Reality 与传输层互斥
 			realityConfig := &yaml.Node{Kind: yaml.MappingNode}
 			if node.RealityServer != "" {
 				addYamlField(realityConfig, "dest", node.RealityServer+":443")
@@ -406,15 +407,16 @@ func buildMihomoListener(node *database.InboundNode, users []NodeUser) *yaml.Nod
 				addYamlNode(realityConfig, "server-names", serverNames)
 			}
 			addYamlNode(result, "reality-config", realityConfig)
-		} else if node.CertPath != "" {
+		} else if !node.RealityEnabled && node.CertPath != "" {
 			// 普通 TLS 证书配置，使用相对路径
+			// 启用 Reality 时不需要证书
 			addYamlField(result, "certificate", node.CertPath)
 			addYamlField(result, "private-key", node.KeyPath)
 		}
 	}
 
-	// 传输层
-	if node.TransportEnabled {
+	// 传输层（与 Reality 互斥）
+	if node.TransportEnabled && !node.RealityEnabled {
 		switch node.TransportType {
 		case "ws":
 			addYamlField(result, "ws-path", node.WsPath)
