@@ -415,7 +415,7 @@ function getDefaultFormData() {
     protocol: 'trojan',
     listen: '::',
     port: 443,
-    tls_enabled: true,
+    tls_enabled: false,
     server_name: 'down.dingtalk.com',
     cert_path: 'server.crt',
     key_path: 'server.key',

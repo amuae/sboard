@@ -75,7 +75,7 @@ type InboundNode struct {
 	Port     int    `gorm:"not null;uniqueIndex" json:"port"`
 
 	// TLS 配置
-	TlsEnabled bool   `gorm:"default:true" json:"tls_enabled"`
+	TlsEnabled bool   `gorm:"default:false" json:"tls_enabled"`
 	ServerName string `gorm:"size:100;default:down.dingtalk.com" json:"server_name"`
 	CertPath   string `gorm:"size:200;default:server.crt" json:"cert_path"`
 	KeyPath    string `gorm:"size:200;default:server.key" json:"key_path"`

@@ -18,6 +18,7 @@
             v-for="user in getUsersByLevel(level)" 
             :key="user.id" 
             class="col-xl-3 col-lg-4 col-md-6"
+            :style="openDropdownId === user.id ? { position: 'relative', zIndex: 1000 } : {}"
           >
             <div class="card user-card">
               <div class="card-body">
@@ -467,5 +468,6 @@ async function doDelete() {
   inset: 0px auto auto 0px;
   margin: 0px;
   transform: translate(0px, 38px);
+  z-index: 1050;
 }
 </style>

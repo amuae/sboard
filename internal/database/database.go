@@ -33,13 +33,13 @@ func Init(dbPath string) error {
 	sqlDB.SetMaxIdleConns(1)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	// 启用外键
-	DB.Exec("PRAGMA foreign_keys = ON")
-
-	// 自动迁移数据库表
+	// 自动迁移数据库表 (迁移时临时禁用外键以支持表重建)
+	DB.Exec("PRAGMA foreign_keys = OFF")
 	if err := autoMigrate(); err != nil {
 		return err
 	}
+	// 迁移完成后启用外键
+	DB.Exec("PRAGMA foreign_keys = ON")
 
 	// 初始化默认的 OAuth 提供商
 	if err := InitDefaultOAuthProviders(); err != nil {
