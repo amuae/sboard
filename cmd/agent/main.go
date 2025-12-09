@@ -959,10 +959,21 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 		return nil, fmt.Errorf("安装服务失败: %v", err)
 	}
 
-	// 10. 启动服务
-	log.Printf("  启动服务: %s", serviceName)
-	if err := serviceManager.StartService(serviceName); err != nil {
-		log.Printf("  启动服务失败: %v", err)
+	// 10. 启动或重启服务
+	if serviceManager.IsServiceRunning(serviceName) {
+		log.Printf("  服务 %s 正在运行，执行重启...", serviceName)
+		if err := serviceManager.RestartService(serviceName); err != nil {
+			log.Printf("  重启服务失败: %v", err)
+		} else {
+			log.Printf("  服务 %s 已重启", serviceName)
+		}
+	} else {
+		log.Printf("  启动服务: %s", serviceName)
+		if err := serviceManager.StartService(serviceName); err != nil {
+			log.Printf("  启动服务失败: %v", err)
+		} else {
+			log.Printf("  服务 %s 已启动", serviceName)
+		}
 	}
 
 	// 11. 检查服务状态

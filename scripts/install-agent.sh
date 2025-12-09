@@ -30,7 +30,6 @@ CONFIG_FILE="agent.json"
 
 # GitHub 加速配置 (国内加速)
 GH_PROXY="https://ghfast.top/"
-GH_PROXY_API="https://ghfast.top/"
 
 # 服务文件路径
 SYSTEMD_SERVICE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -260,19 +259,6 @@ install_deps() {
     done
 }
 
-# 获取最新版本
-get_latest_version() {
-    info "获取最新版本..."
-    
-    # 使用 API 加速域名访问 GitHub API
-    LATEST_VERSION=$(curl -fsSL --connect-timeout 10 "${GH_PROXY_API}https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    
-    if [[ -z "$LATEST_VERSION" ]]; then
-        error "无法获取最新版本，请检查网络连接"
-    fi
-    info "最新版本: $LATEST_VERSION"
-}
-
 # 停止服务
 stop_service() {
     info "停止现有服务..."
@@ -368,18 +354,18 @@ download_agent() {
     # 创建安装目录
     mkdir -p "$INSTALL_DIR"
     
-    # 构建下载 URL
+    # 构建下载 URL (直接使用 latest/download/)
     DOWNLOAD_FILE="${BINARY_NAME}_${OS}_${ARCH}.zip"
-    DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${DOWNLOAD_FILE}"
+    DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/latest/download/${DOWNLOAD_FILE}"
     
     # 创建临时目录
     TMP_DIR=$(mktemp -d)
     cd "$TMP_DIR"
     
     info "下载: $DOWNLOAD_URL"
-    if ! curl -fsSL --connect-timeout 30 "$DOWNLOAD_URL" -o "${DOWNLOAD_FILE}"; then
+    if ! curl -fsSL -L --connect-timeout 30 "$DOWNLOAD_URL" -o "${DOWNLOAD_FILE}"; then
         rm -rf "$TMP_DIR"
-        error "下载失败，请检查版本 ${LATEST_VERSION} 是否存在 ${OS}_${ARCH} 构建"
+        error "下载失败，请检查网络或 ${OS}_${ARCH} 构建是否存在"
     fi
     info "下载成功"
     
@@ -826,9 +812,6 @@ main() {
 
     # 安装依赖
     install_deps
-
-    # 获取最新版本
-    get_latest_version
 
     # 停止现有服务
     stop_service

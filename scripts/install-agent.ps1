@@ -39,7 +39,6 @@ $CONFIG_FILE = "agent.json"
 
 # GitHub 加速配置 (国内加速)
 $GH_PROXY = "https://ghfast.top/"
-$GH_PROXY_API = "https://ghfast.top/"
 
 # 颜色输出函数
 function Write-Info { Write-Host "[INFO] $args" -ForegroundColor Cyan }
@@ -98,20 +97,6 @@ function Get-Architecture {
     }
 }
 
-# 获取最新版本
-function Get-LatestVersion {
-    Write-Info "获取最新版本..."
-    
-    try {
-        $response = Invoke-RestMethod -Uri "${GH_PROXY_API}https://api.github.com/repos/$GITHUB_REPO/releases/latest" -UseBasicParsing -TimeoutSec 30
-        $version = $response.tag_name
-        Write-Info "最新版本: $version"
-        return $version
-    } catch {
-        Write-Error "无法获取最新版本，请检查网络连接"
-    }
-}
-
 # 停止服务
 function Stop-AgentService {
     Write-Info "检查现有服务..."
@@ -152,7 +137,7 @@ function Uninstall-Agent {
 
 # 下载 Agent
 function Download-Agent {
-    param($Version, $Arch)
+    param($Arch)
     
     Write-Info "下载 Agent..."
     
@@ -161,9 +146,9 @@ function Download-Agent {
         New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
     }
     
-    # 构建下载 URL
+    # 构建下载 URL (直接使用 latest/download/)
     $downloadFile = "${BINARY_NAME.Replace('.exe', '')}_windows_${Arch}.zip"
-    $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/download/$Version/$downloadFile"
+    $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/latest/download/$downloadFile"
     $tempZip = Join-Path $env:TEMP $downloadFile
     
     Write-Info "下载: $downloadUrl"
@@ -271,14 +256,11 @@ function Start-AgentService {
 
 # 显示状态
 function Show-Status {
-    param($Version)
-    
     Write-Host ""
     Write-Host "=========================================="
     Write-Host "SBoard Agent 安装完成" -ForegroundColor Green
     Write-Host "=========================================="
     Write-Host ""
-    Write-Host "版本: $Version"
     Write-Host "安装目录: $INSTALL_DIR"
     Write-Host "配置文件: $(Join-Path $INSTALL_DIR $CONFIG_FILE)"
     Write-Host "服务名称: $SERVICE_NAME"
@@ -357,14 +339,11 @@ function Main {
     $arch = Get-Architecture
     Write-Info "检测到架构: $arch"
     
-    # 获取最新版本
-    $version = Get-LatestVersion
-    
     # 停止现有服务
     Stop-AgentService
     
     # 下载 Agent
-    Download-Agent -Version $version -Arch $arch
+    Download-Agent -Arch $arch
     
     # 生成配置
     Generate-Config
@@ -376,7 +355,7 @@ function Main {
     Start-AgentService
     
     # 显示状态
-    Show-Status -Version $version
+    Show-Status
 }
 
 # 执行
