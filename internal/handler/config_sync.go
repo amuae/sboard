@@ -260,14 +260,15 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		inbound.Set("users", userList)
 	}
 
-	// TLS 配置
+	// TLS 配置（可选，trojan/anytls 也可以不启用 TLS）
 	if node.TlsEnabled && node.Protocol != "shadowsocks" {
 		tls := map[string]interface{}{
 			"enabled":     true,
 			"server_name": node.ServerName,
 		}
 
-		if node.RealityEnabled && node.RealityPrivkey != "" && !node.TransportEnabled {
+		if node.RealityEnabled && node.RealityPrivkey != "" {
+			// Reality 配置（Reality 通常与传输层互斥，但由前端控制）
 			realityHandshake := map[string]interface{}{
 				"server":      node.RealityServer,
 				"server_port": 443,
@@ -281,9 +282,8 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 				reality["short_id"] = []string{node.RealityShortId}
 			}
 			tls["reality"] = reality
-		} else if !node.RealityEnabled {
-			// 普通 TLS 证书配置，使用相对路径
-			// 启用 Reality 时不需要证书
+		} else {
+			// 普通 TLS 证书配置
 			tls["certificate_path"] = node.CertPath
 			tls["key_path"] = node.KeyPath
 		}
@@ -291,15 +291,14 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		inbound.Set("tls", tls)
 	}
 
-	// 传输层配置
-	if node.TransportEnabled && !node.RealityEnabled {
+	// 传输层配置（可与 TLS 共存，但通常与 Reality 互斥）
+	if node.TransportEnabled {
 		transport := map[string]interface{}{}
 
 		switch node.TransportType {
 		case "ws":
 			transport["type"] = "ws"
 			transport["path"] = node.WsPath
-			// 服务端不需要验证 Host 头，由客户端订阅配置设置
 		case "grpc":
 			transport["type"] = "grpc"
 			transport["service_name"] = node.GrpcService
@@ -309,7 +308,6 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		case "httpupgrade":
 			transport["type"] = "httpupgrade"
 			transport["path"] = node.WsPath
-			// 服务端不需要验证 Host 头
 		}
 
 		if len(transport) > 0 {
@@ -390,9 +388,8 @@ func buildMihomoListener(node *database.InboundNode, users []NodeUser) *yaml.Nod
 
 	// TLS 配置
 	if node.TlsEnabled && node.Protocol != "shadowsocks" {
-		if node.RealityEnabled && node.RealityPrivkey != "" && !node.TransportEnabled {
+		if node.RealityEnabled && node.RealityPrivkey != "" {
 			// Reality 配置 (mihomo 使用 reality-config)
-			// Reality 与传输层互斥
 			realityConfig := &yaml.Node{Kind: yaml.MappingNode}
 			if node.RealityServer != "" {
 				addYamlField(realityConfig, "dest", node.RealityServer+":443")
@@ -409,16 +406,15 @@ func buildMihomoListener(node *database.InboundNode, users []NodeUser) *yaml.Nod
 				addYamlNode(realityConfig, "server-names", serverNames)
 			}
 			addYamlNode(result, "reality-config", realityConfig)
-		} else if !node.RealityEnabled && node.CertPath != "" {
-			// 普通 TLS 证书配置，使用相对路径
-			// 启用 Reality 时不需要证书
+		} else if node.CertPath != "" {
+			// 普通 TLS 证书配置
 			addYamlField(result, "certificate", node.CertPath)
 			addYamlField(result, "private-key", node.KeyPath)
 		}
 	}
 
-	// 传输层（与 Reality 互斥）
-	if node.TransportEnabled && !node.RealityEnabled {
+	// 传输层配置
+	if node.TransportEnabled {
 		switch node.TransportType {
 		case "ws":
 			addYamlField(result, "ws-path", node.WsPath)
