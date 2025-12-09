@@ -71,10 +71,12 @@ show_help() {
     echo "  install-sboard.sh [命令] [选项]"
     echo ""
     echo "命令:"
-    echo "  install     安装 SBoard (默认)"
-    echo "  update      更新 SBoard"
-    echo "  uninstall   卸载 SBoard"
-    echo "  help        显示帮助"
+    echo "  (无参数)   进入交互式菜单 (直接运行时)"
+    echo "  install    安装 SBoard (管道模式默认)"
+    echo "  update     更新 SBoard"
+    echo "  uninstall  卸载 SBoard"
+    echo "  menu       进入交互式菜单"
+    echo "  help       显示帮助"
     echo ""
     echo "选项:"
     echo "  --path <path>     安装路径 (默认: /opt/sboard)"
@@ -107,11 +109,18 @@ show_help() {
 
 # 解析命令行参数
 parse_args() {
+    # 如果直接从终端运行且没有参数，显示菜单
+    if [[ $# -eq 0 ]] && [[ -t 0 ]]; then
+        COMMAND="menu"
+        return
+    fi
+    
+    # 默认命令为 install (用于管道模式)
     COMMAND="install"
     
     while [[ $# -gt 0 ]]; do
         case $1 in
-            install|update|uninstall)
+            install|update|uninstall|menu)
                 COMMAND="$1"
                 shift
                 ;;
@@ -155,6 +164,19 @@ parse_args() {
 interactive_config() {
     if [[ "$INTERACTIVE" != "true" ]]; then
         # 非交互模式，使用默认值
+        if [[ -z "$ADMIN_USER" ]]; then
+            ADMIN_USER="admin"
+        fi
+        if [[ -z "$ADMIN_PASS" ]]; then
+            ADMIN_PASS="admin123"
+        fi
+        return
+    fi
+    
+    # 检查是否可以交互 (stdin 是否是终端)
+    if [[ ! -t 0 ]]; then
+        warning "检测到管道模式，使用默认配置"
+        warning "如需自定义配置，请使用参数: --port <port> --user <user> --pass <pass>"
         if [[ -z "$ADMIN_USER" ]]; then
             ADMIN_USER="admin"
         fi
@@ -1001,16 +1023,214 @@ update() {
     success "SBoard 更新完成"
 }
 
+# 交互式主菜单
+show_menu() {
+    echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}       SBoard 管理菜单${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    echo ""
+    echo -e "  ${GREEN}1.${NC} 安装 SBoard"
+    echo -e "  ${GREEN}2.${NC} 更新 SBoard"
+    echo -e "  ${GREEN}3.${NC} 卸载 SBoard"
+    echo -e "  ${GREEN}4.${NC} 查看状态"
+    echo -e "  ${GREEN}5.${NC} 启动服务"
+    echo -e "  ${GREEN}6.${NC} 停止服务"
+    echo -e "  ${GREEN}7.${NC} 重启服务"
+    echo -e "  ${GREEN}8.${NC} 查看日志"
+    echo -e "  ${GREEN}0.${NC} 退出"
+    echo ""
+    read -p "请选择操作 [0-8]: " choice
+    
+    case "$choice" in
+        1)
+            COMMAND="install"
+            ;;
+        2)
+            COMMAND="update"
+            ;;
+        3)
+            COMMAND="uninstall"
+            ;;
+        4)
+            show_status
+            show_menu
+            return
+            ;;
+        5)
+            start_service_only
+            show_menu
+            return
+            ;;
+        6)
+            stop_service_only
+            show_menu
+            return
+            ;;
+        7)
+            restart_service_only
+            show_menu
+            return
+            ;;
+        8)
+            show_logs
+            show_menu
+            return
+            ;;
+        0|q|Q)
+            echo "再见!"
+            exit 0
+            ;;
+        *)
+            warning "无效选择，请重新选择"
+            show_menu
+            return
+            ;;
+    esac
+}
+
+# 查看状态
+show_status() {
+    echo ""
+    info "SBoard 状态:"
+    
+    # 检查安装
+    if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
+        echo -e "  安装状态: ${GREEN}已安装${NC}"
+        echo "  安装路径: ${INSTALL_DIR}"
+    else
+        echo -e "  安装状态: ${RED}未安装${NC}"
+        return
+    fi
+    
+    # 检查服务状态
+    case "$INIT_SYSTEM" in
+        systemd)
+            if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+                echo -e "  服务状态: ${GREEN}运行中${NC}"
+            else
+                echo -e "  服务状态: ${RED}已停止${NC}"
+            fi
+            ;;
+        openrc)
+            if rc-service "$SERVICE_NAME" status &>/dev/null; then
+                echo -e "  服务状态: ${GREEN}运行中${NC}"
+            else
+                echo -e "  服务状态: ${RED}已停止${NC}"
+            fi
+            ;;
+        *)
+            echo -e "  服务状态: ${YELLOW}未知${NC}"
+            ;;
+    esac
+    
+    # 显示端口
+    if command -v ss &>/dev/null; then
+        local ports=$(ss -tlnp 2>/dev/null | grep "$BINARY_NAME" | awk '{print $4}' | grep -oE '[0-9]+$' | head -1)
+        if [[ -n "$ports" ]]; then
+            echo "  监听端口: $ports"
+        fi
+    fi
+    echo ""
+}
+
+# 启动服务
+start_service_only() {
+    info "启动 SBoard 服务..."
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl start "$SERVICE_NAME"
+            ;;
+        openrc)
+            rc-service "$SERVICE_NAME" start
+            ;;
+        sysvinit)
+            "$SYSVINIT_SERVICE" start
+            ;;
+        *)
+            error "不支持的 Init 系统"
+            ;;
+    esac
+    success "服务已启动"
+}
+
+# 停止服务
+stop_service_only() {
+    info "停止 SBoard 服务..."
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl stop "$SERVICE_NAME"
+            ;;
+        openrc)
+            rc-service "$SERVICE_NAME" stop
+            ;;
+        sysvinit)
+            "$SYSVINIT_SERVICE" stop
+            ;;
+        *)
+            error "不支持的 Init 系统"
+            ;;
+    esac
+    success "服务已停止"
+}
+
+# 重启服务
+restart_service_only() {
+    info "重启 SBoard 服务..."
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl restart "$SERVICE_NAME"
+            ;;
+        openrc)
+            rc-service "$SERVICE_NAME" restart
+            ;;
+        sysvinit)
+            "$SYSVINIT_SERVICE" restart
+            ;;
+        *)
+            error "不支持的 Init 系统"
+            ;;
+    esac
+    success "服务已重启"
+}
+
+# 查看日志
+show_logs() {
+    info "最近 50 行日志:"
+    echo ""
+    case "$INIT_SYSTEM" in
+        systemd)
+            journalctl -u "$SERVICE_NAME" -n 50 --no-pager
+            ;;
+        *)
+            if [[ -f "${DATA_DIR}/sboard.log" ]]; then
+                tail -n 50 "${DATA_DIR}/sboard.log"
+            else
+                warning "日志文件不存在"
+            fi
+            ;;
+    esac
+    echo ""
+}
+
 # 主函数
 main() {
     # 解析命令行参数
     parse_args "$@"
     
     echo ""
-    echo "=========================================="
-    echo "       SBoard 一键安装脚本"
-    echo "=========================================="
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${CYAN}       SBoard 一键安装脚本${NC}"
+    echo -e "${CYAN}==========================================${NC}"
     echo ""
+    
+    # 如果是菜单模式或者直接运行（终端模式且无参数）
+    if [[ "$COMMAND" == "menu" ]]; then
+        check_root
+        detect_os
+        detect_init_system
+        show_menu
+    fi
     
     case "$COMMAND" in
         install)
@@ -1041,6 +1261,9 @@ main() {
             detect_os
             detect_init_system
             uninstall
+            ;;
+        menu)
+            # 已在上面处理
             ;;
         *)
             error "未知命令: $COMMAND"
