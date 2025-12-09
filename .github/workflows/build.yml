@@ -95,10 +95,11 @@ jobs:
           path: cmd/sboard/web
 
       - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
+        run: |
+          curl -LO https://go.dev/dl/go${{ env.GO_VERSION }}.linux-amd64.tar.gz
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf go${{ env.GO_VERSION }}.linux-amd64.tar.gz
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
 
       - name: Build sboard
         env:
@@ -174,10 +175,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
+        run: |
+          curl -LO https://go.dev/dl/go${{ env.GO_VERSION }}.linux-amd64.tar.gz
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf go${{ env.GO_VERSION }}.linux-amd64.tar.gz
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
 
       - name: Download cores (mihomo & sing-box)
         run: |
