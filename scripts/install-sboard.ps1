@@ -3,16 +3,28 @@
 # 
 # 用法 (以管理员身份运行 PowerShell):
 #
-#   方式1: 通过管道直接安装 (推荐)
+#   方式1: 直接运行脚本进入交互式菜单
+#     .\install-sboard.ps1
+#
+#   方式2: 通过管道安装
 #     irm https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.ps1 | iex
 #
-#   方式2: 设置环境变量后安装
-#     $env:PORT="9000"; $env:USER="admin"; $env:PASS="mypassword"; irm <url> | iex
-#
-#   方式3: 下载脚本后带参数运行
-#     .\install-sboard.ps1 -Port 9000 -User admin -Pass mypassword
+#   方式3: 带参数运行
+#     .\install-sboard.ps1 -Install -Port 9000 -User admin -Pass mypassword
 
 param(
+    [Parameter(Mandatory=$false)]
+    [switch]$Install,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$Update,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$Uninstall,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$Menu,
+    
     [Parameter(Mandatory=$false)]
     [string]$InstallDir = "C:\sboard",
     
@@ -24,12 +36,6 @@ param(
     
     [Parameter(Mandatory=$false)]
     [string]$Pass,
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$Update,
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$Uninstall,
     
     [Parameter(Mandatory=$false)]
     [switch]$NoInteractive,
@@ -51,32 +57,41 @@ $GH_PROXY = "https://ghfast.top/"
 function Write-Info { Write-Host "[INFO] $args" -ForegroundColor Cyan }
 function Write-Success { Write-Host "[SUCCESS] $args" -ForegroundColor Green }
 function Write-Warn { Write-Host "[WARNING] $args" -ForegroundColor Yellow }
-function Write-Err { Write-Host "[ERROR] $args" -ForegroundColor Red; exit 1 }
+function Write-Err { 
+    param([string]$Message)
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
+    exit 1 
+}
 
 # 显示帮助
 function Show-Help {
-    Write-Host "SBoard 面板 Windows 安装脚本"
+    Write-Host "SBoard 面板 Windows 安装脚本" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "用法:"
     Write-Host ""
-    Write-Host "  方式1: 通过管道直接安装 (推荐)"
-    Write-Host "    irm <url> | iex"
+    Write-Host "  方式1: 直接运行进入交互式菜单"
+    Write-Host "    .\install-sboard.ps1"
     Write-Host ""
-    Write-Host "  方式2: 设置环境变量后安装"
-    Write-Host '    $env:PORT="9000"; $env:USER="admin"; $env:PASS="mypassword"; irm <url> | iex'
+    Write-Host "  方式2: 通过管道安装"
+    Write-Host '    irm <url> | iex'
     Write-Host ""
-    Write-Host "  方式3: 下载脚本后带参数运行"
-    Write-Host "    .\install-sboard.ps1 -Port 9000 -User admin -Pass mypassword"
+    Write-Host "  方式3: 带参数运行"
+    Write-Host "    .\install-sboard.ps1 -Install -Port 9000 -User admin -Pass mypassword"
+    Write-Host ""
+    Write-Host "命令:"
+    Write-Host "  (无参数)       进入交互式菜单"
+    Write-Host "  -Install       安装 SBoard"
+    Write-Host "  -Update        更新 SBoard"
+    Write-Host "  -Uninstall     卸载 SBoard"
+    Write-Host "  -Menu          进入交互式菜单"
+    Write-Host "  -Help          显示帮助"
     Write-Host ""
     Write-Host "参数:"
     Write-Host "  -InstallDir <path>  安装路径 (默认: C:\sboard)"
     Write-Host "  -Port <port>        监听端口 (默认: 8080)"
     Write-Host "  -User <user>        管理员用户名 (默认: admin)"
     Write-Host "  -Pass <pass>        管理员密码 (默认: admin123)"
-    Write-Host "  -Update             更新 SBoard"
-    Write-Host "  -Uninstall          卸载 SBoard"
     Write-Host "  -NoInteractive      非交互模式"
-    Write-Host "  -Help               显示帮助"
     Write-Host ""
     Write-Host "环境变量:"
     Write-Host "  PORT                监听端口"
@@ -84,10 +99,12 @@ function Show-Help {
     Write-Host "  PASS                管理员密码"
     Write-Host ""
     Write-Host "示例:"
-    Write-Host "  .\install-sboard.ps1"
-    Write-Host "  .\install-sboard.ps1 -Port 9000 -User admin -Pass admin123"
-    Write-Host "  .\install-sboard.ps1 -Update"
-    Write-Host "  .\install-sboard.ps1 -Uninstall"
+    Write-Host "  .\install-sboard.ps1                                    # 交互式菜单"
+    Write-Host "  .\install-sboard.ps1 -Install                           # 交互式安装"
+    Write-Host "  .\install-sboard.ps1 -Install -NoInteractive            # 使用默认值安装"
+    Write-Host "  .\install-sboard.ps1 -Install -Port 9000 -User admin    # 指定参数安装"
+    Write-Host "  .\install-sboard.ps1 -Update                            # 更新"
+    Write-Host "  .\install-sboard.ps1 -Uninstall                         # 卸载"
     Write-Host ""
     Write-Host "支持的架构: amd64, arm64, 386"
     Write-Host ""
@@ -123,17 +140,242 @@ function New-RandomString {
     return $result
 }
 
+# 检查是否已安装
+function Test-Installed {
+    $binaryPath = Join-Path $InstallDir $BINARY_NAME
+    return (Test-Path $binaryPath)
+}
+
+# 获取服务状态
+function Get-ServiceStatus {
+    $service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+    if ($service) {
+        return $service.Status
+    }
+    return "NotInstalled"
+}
+
+# 显示交互式菜单
+function Show-Menu {
+    while ($true) {
+        Clear-Host
+        Write-Host ""
+        Write-Host "==========================================" -ForegroundColor Cyan
+        Write-Host "         SBoard 管理菜单" -ForegroundColor Cyan
+        Write-Host "==========================================" -ForegroundColor Cyan
+        Write-Host ""
+        
+        # 显示当前状态
+        $installed = Test-Installed
+        $status = Get-ServiceStatus
+        
+        if ($installed) {
+            Write-Host "  安装状态: " -NoNewline
+            Write-Host "已安装" -ForegroundColor Green
+            Write-Host "  安装路径: $InstallDir"
+            Write-Host "  服务状态: " -NoNewline
+            switch ($status) {
+                "Running" { Write-Host "运行中" -ForegroundColor Green }
+                "Stopped" { Write-Host "已停止" -ForegroundColor Yellow }
+                default { Write-Host "$status" -ForegroundColor Gray }
+            }
+        } else {
+            Write-Host "  安装状态: " -NoNewline
+            Write-Host "未安装" -ForegroundColor Yellow
+        }
+        
+        Write-Host ""
+        Write-Host "  [1] 安装 SBoard" -ForegroundColor Green
+        Write-Host "  [2] 更新 SBoard" -ForegroundColor Green
+        Write-Host "  [3] 卸载 SBoard" -ForegroundColor Green
+        Write-Host "  [4] 查看状态" -ForegroundColor Green
+        Write-Host "  [5] 启动服务" -ForegroundColor Green
+        Write-Host "  [6] 停止服务" -ForegroundColor Green
+        Write-Host "  [7] 重启服务" -ForegroundColor Green
+        Write-Host "  [8] 查看日志" -ForegroundColor Green
+        Write-Host "  [0] 退出" -ForegroundColor Green
+        Write-Host ""
+        
+        $choice = Read-Host "请选择操作 [0-8]"
+        
+        switch ($choice) {
+            "1" {
+                Install-Sboard
+                Read-Host "按回车键继续..."
+            }
+            "2" {
+                Update-Sboard
+                Read-Host "按回车键继续..."
+            }
+            "3" {
+                Uninstall-Sboard
+                Read-Host "按回车键继续..."
+            }
+            "4" {
+                Show-DetailedStatus
+                Read-Host "按回车键继续..."
+            }
+            "5" {
+                Start-SboardService
+                Read-Host "按回车键继续..."
+            }
+            "6" {
+                Stop-SboardService
+                Read-Host "按回车键继续..."
+            }
+            "7" {
+                Restart-SboardService
+                Read-Host "按回车键继续..."
+            }
+            "8" {
+                Show-Logs
+                Read-Host "按回车键继续..."
+            }
+            "0" {
+                Write-Host "再见!" -ForegroundColor Cyan
+                exit 0
+            }
+            default {
+                Write-Warn "无效选择，请重新选择"
+                Start-Sleep -Seconds 1
+            }
+        }
+    }
+}
+
+# 显示详细状态
+function Show-DetailedStatus {
+    Write-Host ""
+    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Host "         SBoard 状态" -ForegroundColor Cyan
+    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $installed = Test-Installed
+    if ($installed) {
+        Write-Host "  安装状态: " -NoNewline
+        Write-Host "已安装" -ForegroundColor Green
+        Write-Host "  安装路径: $InstallDir"
+        
+        $binaryPath = Join-Path $InstallDir $BINARY_NAME
+        $fileInfo = Get-Item $binaryPath -ErrorAction SilentlyContinue
+        if ($fileInfo) {
+            Write-Host "  文件大小: $([math]::Round($fileInfo.Length / 1MB, 2)) MB"
+            Write-Host "  修改时间: $($fileInfo.LastWriteTime)"
+        }
+    } else {
+        Write-Host "  安装状态: " -NoNewline
+        Write-Host "未安装" -ForegroundColor Yellow
+        return
+    }
+    
+    # 服务状态
+    $service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+    if ($service) {
+        Write-Host "  服务状态: " -NoNewline
+        switch ($service.Status) {
+            "Running" { Write-Host "运行中" -ForegroundColor Green }
+            "Stopped" { Write-Host "已停止" -ForegroundColor Yellow }
+            default { Write-Host "$($service.Status)" -ForegroundColor Gray }
+        }
+        Write-Host "  启动类型: $($service.StartType)"
+    }
+    
+    # 读取配置文件获取端口
+    $configPath = Join-Path $InstallDir "data" $CONFIG_FILE
+    if (Test-Path $configPath) {
+        $content = Get-Content $configPath -Raw
+        if ($content -match 'listen:\s*"[^:]+:(\d+)"') {
+            Write-Host "  监听端口: $($Matches[1])"
+        }
+    }
+    
+    # 检查进程
+    $process = Get-Process -Name "sboard" -ErrorAction SilentlyContinue
+    if ($process) {
+        Write-Host "  进程 ID:  $($process.Id)"
+        Write-Host "  内存使用: $([math]::Round($process.WorkingSet64 / 1MB, 2)) MB"
+    }
+    
+    Write-Host ""
+}
+
 # 停止服务
 function Stop-SboardService {
-    Write-Info "检查现有服务..."
+    Write-Info "停止 SBoard 服务..."
     $service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
     if ($service) {
         if ($service.Status -eq "Running") {
-            Write-Info "停止服务..."
             Stop-Service -Name $SERVICE_NAME -Force
             Start-Sleep -Seconds 2
+            Write-Success "服务已停止"
+        } else {
+            Write-Warn "服务未在运行"
+        }
+    } else {
+        Write-Warn "服务不存在"
+    }
+}
+
+# 启动服务
+function Start-SboardService {
+    Write-Info "启动 SBoard 服务..."
+    $service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+    if ($service) {
+        if ($service.Status -ne "Running") {
+            Start-Service -Name $SERVICE_NAME
+            Start-Sleep -Seconds 2
+            $service = Get-Service -Name $SERVICE_NAME
+            if ($service.Status -eq "Running") {
+                Write-Success "服务已启动"
+            } else {
+                Write-Warn "服务启动失败，请检查日志"
+            }
+        } else {
+            Write-Warn "服务已经在运行"
+        }
+    } else {
+        Write-Warn "服务不存在，请先安装"
+    }
+}
+
+# 重启服务
+function Restart-SboardService {
+    Write-Info "重启 SBoard 服务..."
+    $service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+    if ($service) {
+        Restart-Service -Name $SERVICE_NAME -Force
+        Start-Sleep -Seconds 2
+        $service = Get-Service -Name $SERVICE_NAME
+        if ($service.Status -eq "Running") {
+            Write-Success "服务已重启"
+        } else {
+            Write-Warn "服务重启失败，请检查日志"
+        }
+    } else {
+        Write-Warn "服务不存在，请先安装"
+    }
+}
+
+# 查看日志
+function Show-Logs {
+    Write-Host ""
+    Write-Info "最近 50 行日志:"
+    Write-Host ""
+    
+    $logPath = Join-Path $InstallDir "data" "sboard.log"
+    if (Test-Path $logPath) {
+        Get-Content $logPath -Tail 50
+    } else {
+        # 尝试从 Windows 事件日志获取
+        try {
+            Get-EventLog -LogName Application -Source $SERVICE_NAME -Newest 50 -ErrorAction SilentlyContinue | 
+                Format-Table -Property TimeGenerated, Message -AutoSize
+        } catch {
+            Write-Warn "日志文件不存在: $logPath"
         }
     }
+    Write-Host ""
 }
 
 # 卸载
@@ -149,10 +391,11 @@ function Uninstall-Sboard {
         }
         Write-Info "删除 Windows 服务..."
         sc.exe delete $SERVICE_NAME | Out-Null
+        Start-Sleep -Seconds 1
     }
     
     # 询问是否删除数据
-    $deleteData = $true
+    $deleteData = $false
     if (-not $NoInteractive) {
         $response = Read-Host "是否删除数据目录? [y/N]"
         $deleteData = $response -match "^[Yy]"
@@ -169,11 +412,11 @@ function Uninstall-Sboard {
             if (Test-Path $binaryPath) {
                 Remove-Item $binaryPath -Force
             }
+            Write-Info "已保留数据目录: $(Join-Path $InstallDir 'data')"
         }
     }
     
     Write-Success "SBoard 已卸载"
-    exit 0
 }
 
 # 下载 SBoard
@@ -200,6 +443,7 @@ function Download-Sboard {
     
     Write-Info "下载: $downloadUrl"
     try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 120
         Write-Info "下载成功"
     } catch {
@@ -224,7 +468,7 @@ function New-Config {
     $configPath = Join-Path $InstallDir "data" $CONFIG_FILE
     
     # 如果配置已存在，跳过
-    if ((Test-Path $configPath) -and -not $Update) {
+    if (Test-Path $configPath) {
         Write-Warn "配置文件已存在，跳过创建"
         return
     }
@@ -234,7 +478,7 @@ function New-Config {
     # 生成随机 JWT 密钥
     $jwtSecret = New-RandomString -Length 32
     
-    $dataDir = Join-Path $InstallDir "data"
+    $dataDir = (Join-Path $InstallDir "data") -replace '\\', '\\'
     
     $config = @"
 # SBoard 配置文件
@@ -244,7 +488,7 @@ server:
   debug: false
 
 data:
-  dir: "$($dataDir -replace '\\', '\\')"
+  dir: "$dataDir"
 
 security:
   jwt_secret: "$jwtSecret"
@@ -289,58 +533,39 @@ function New-WindowsService {
     Write-Success "Windows 服务已创建"
 }
 
-# 启动服务
-function Start-SboardService {
-    Write-Info "启动服务..."
-    
-    Start-Service -Name $SERVICE_NAME
-    Start-Sleep -Seconds 3
-    
-    $service = Get-Service -Name $SERVICE_NAME
-    if ($service.Status -eq "Running") {
-        Write-Success "服务启动成功"
-    } else {
-        Write-Err "服务启动失败，请检查日志"
-    }
-}
-
-# 显示状态
-function Show-Status {
+# 显示安装完成信息
+function Show-InstallStatus {
     Write-Host ""
-    Write-Host "=========================================="
-    Write-Host "SBoard 安装完成" -ForegroundColor Green
-    Write-Host "=========================================="
+    Write-Host "==========================================" -ForegroundColor Green
+    Write-Host "         SBoard 安装完成" -ForegroundColor Green
+    Write-Host "==========================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "安装目录: $InstallDir"
-    Write-Host "数据目录: $(Join-Path $InstallDir 'data')"
-    Write-Host "配置文件: $(Join-Path $InstallDir 'data' $CONFIG_FILE)"
-    Write-Host "服务名称: $SERVICE_NAME"
+    Write-Host "  安装目录: $InstallDir"
+    Write-Host "  数据目录: $(Join-Path $InstallDir 'data')"
+    Write-Host "  配置文件: $(Join-Path $InstallDir 'data' $CONFIG_FILE)"
+    Write-Host "  服务名称: $SERVICE_NAME"
     Write-Host ""
-    Write-Host "访问地址: http://localhost:$Port"
-    Write-Host "管理员用户: $User"
+    Write-Host "  访问地址: " -NoNewline
+    Write-Host "http://localhost:$Port" -ForegroundColor Cyan
+    Write-Host "  管理员用户: $User"
     Write-Host ""
-    Write-Host "常用命令:"
+    Write-Host "常用命令:" -ForegroundColor Yellow
     Write-Host "  查看状态: Get-Service $SERVICE_NAME"
-    Write-Host "  查看日志: Get-Content $(Join-Path $InstallDir 'data' 'sboard.log') -Tail 50"
     Write-Host "  重启服务: Restart-Service $SERVICE_NAME"
     Write-Host "  停止服务: Stop-Service $SERVICE_NAME"
+    Write-Host "  启动服务: Start-Service $SERVICE_NAME"
     Write-Host ""
-    Write-Host "或使用 services.msc 管理服务"
-    Write-Host ""
-    Write-Host "更新命令:"
-    Write-Host "  .\install-sboard.ps1 -Update"
-    Write-Host ""
-    Write-Host "卸载命令:"
-    Write-Host "  .\install-sboard.ps1 -Uninstall"
+    Write-Host "或运行此脚本进入管理菜单:"
+    Write-Host "  .\install-sboard.ps1"
     Write-Host ""
 }
 
 # 交互式配置
 function Get-InteractiveConfig {
     Write-Host ""
-    Write-Host "=========================================="
-    Write-Host "       SBoard 安装配置"
-    Write-Host "=========================================="
+    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Host "         SBoard 安装配置" -ForegroundColor Cyan
+    Write-Host "==========================================" -ForegroundColor Cyan
     Write-Host ""
     
     # 安装路径
@@ -376,51 +601,29 @@ function Get-InteractiveConfig {
     }
 }
 
-# 主函数
-function Main {
-    Write-Host ""
-    Write-Host "=========================================="
-    Write-Host "      SBoard 面板 Windows 安装脚本"
-    Write-Host "=========================================="
-    Write-Host ""
-    
-    # 显示帮助
-    if ($Help) {
-        Show-Help
-    }
-    
-    # 卸载
-    if ($Uninstall) {
-        Uninstall-Sboard
-    }
-    
+# 安装 SBoard
+function Install-Sboard {
     # 检查管理员权限
     if (-not (Test-Administrator)) {
         Write-Err "请以管理员身份运行此脚本"
     }
     
     # 从环境变量读取参数
-    if (-not $Port -or $Port -eq 8080) {
-        if ($env:PORT) {
-            $script:Port = [int]$env:PORT
-            Write-Info "从环境变量读取端口: $Port"
-        }
+    if ($env:PORT -and (-not $Port -or $Port -eq 8080)) {
+        $script:Port = [int]$env:PORT
+        Write-Info "从环境变量读取端口: $Port"
     }
-    if (-not $User) {
-        if ($env:USER) {
-            $script:User = $env:USER
-            Write-Info "从环境变量读取用户名"
-        }
+    if ($env:USER -and -not $User) {
+        $script:User = $env:USER
+        Write-Info "从环境变量读取用户名"
     }
-    if (-not $Pass) {
-        if ($env:PASS) {
-            $script:Pass = $env:PASS
-            Write-Info "从环境变量读取密码"
-        }
+    if ($env:PASS -and -not $Pass) {
+        $script:Pass = $env:PASS
+        Write-Info "从环境变量读取密码"
     }
     
     # 交互式配置
-    if (-not $NoInteractive -and -not $Update) {
+    if (-not $NoInteractive) {
         Get-InteractiveConfig
     } else {
         # 非交互模式，使用默认值
@@ -433,24 +636,141 @@ function Main {
     Write-Info "检测到架构: $arch"
     
     # 停止现有服务
-    Stop-SboardService
+    $service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -eq "Running") {
+        Write-Info "停止现有服务..."
+        Stop-Service -Name $SERVICE_NAME -Force
+        Start-Sleep -Seconds 2
+    }
     
     # 下载 SBoard
     Download-Sboard -Arch $arch
     
     # 生成配置
-    if (-not $Update) {
-        New-Config
-    }
+    New-Config
     
     # 创建服务
     New-WindowsService
     
     # 启动服务
-    Start-SboardService
+    Write-Info "启动服务..."
+    Start-Service -Name $SERVICE_NAME
+    Start-Sleep -Seconds 3
+    
+    $service = Get-Service -Name $SERVICE_NAME
+    if ($service.Status -eq "Running") {
+        Write-Success "服务启动成功"
+    } else {
+        Write-Warn "服务可能启动失败，请检查日志"
+    }
     
     # 显示状态
-    Show-Status
+    Show-InstallStatus
+}
+
+# 更新 SBoard
+function Update-Sboard {
+    # 检查管理员权限
+    if (-not (Test-Administrator)) {
+        Write-Err "请以管理员身份运行此脚本"
+    }
+    
+    if (-not (Test-Installed)) {
+        Write-Err "SBoard 未安装，请先安装"
+    }
+    
+    Write-Info "开始更新 SBoard..."
+    
+    # 检测架构
+    $arch = Get-Architecture
+    
+    # 停止服务
+    $service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -eq "Running") {
+        Write-Info "停止服务..."
+        Stop-Service -Name $SERVICE_NAME -Force
+        Start-Sleep -Seconds 2
+    }
+    
+    # 下载新版本
+    Download-Sboard -Arch $arch
+    
+    # 启动服务
+    Write-Info "启动服务..."
+    Start-Service -Name $SERVICE_NAME
+    Start-Sleep -Seconds 3
+    
+    $service = Get-Service -Name $SERVICE_NAME
+    if ($service.Status -eq "Running") {
+        Write-Success "SBoard 更新完成"
+    } else {
+        Write-Warn "服务可能启动失败，请检查日志"
+    }
+}
+
+# 主函数
+function Main {
+    Write-Host ""
+    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Host "      SBoard 面板 Windows 安装脚本" -ForegroundColor Cyan
+    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # 显示帮助
+    if ($Help) {
+        Show-Help
+        return
+    }
+    
+    # 检查管理员权限 (除了帮助命令)
+    if (-not (Test-Administrator)) {
+        Write-Host "[ERROR] 请以管理员身份运行此脚本" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "方法: 右键点击 PowerShell -> 以管理员身份运行"
+        Write-Host ""
+        exit 1
+    }
+    
+    # 根据参数执行操作
+    if ($Uninstall) {
+        Uninstall-Sboard
+        return
+    }
+    
+    if ($Update) {
+        Update-Sboard
+        return
+    }
+    
+    if ($Install) {
+        Install-Sboard
+        return
+    }
+    
+    if ($Menu) {
+        Show-Menu
+        return
+    }
+    
+    # 没有指定命令时的逻辑
+    # 检测是否是管道模式
+    $isPipeline = $false
+    try {
+        if ([Console]::IsInputRedirected) {
+            $isPipeline = $true
+        }
+    } catch {
+        $isPipeline = $true
+    }
+    
+    if ($isPipeline) {
+        # 管道模式，直接安装
+        Write-Info "检测到管道模式，开始安装..."
+        Install-Sboard
+    } else {
+        # 直接运行，显示菜单
+        Show-Menu
+    }
 }
 
 # 执行
