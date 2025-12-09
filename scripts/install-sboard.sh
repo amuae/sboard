@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # SBoard 面板一键安装脚本
-# 支持: Linux (amd64, arm64, armv7), macOS (amd64, arm64)
+# 支持: Linux (amd64, 386, arm64, armv7, armv6), macOS (amd64, arm64)
 #
 # 支持的 Init 系统:
 #   - systemd (Ubuntu, Debian, CentOS, Fedora, Arch 等)
@@ -95,7 +95,7 @@ show_help() {
     echo "  curl -fsSL <url> | bash -s -- --no-interactive"
     echo ""
     echo "支持的平台:"
-    echo "  Linux: amd64, arm64, armv7"
+    echo "  Linux: amd64, 386, arm64, armv7, armv6"
     echo "  macOS: amd64, arm64"
     echo ""
     echo "支持的 Init 系统:"
@@ -258,11 +258,14 @@ detect_arch() {
         armv7l|armv7)
             ARCH="armv7"
             ;;
-        armv6l|armv5l|arm)
+        armv6l)
+            ARCH="armv6"
+            ;;
+        armv5l|arm)
             ARCH="arm"
             ;;
         *)
-            error "不支持的架构: $ARCH_TYPE，支持: amd64, 386, arm64, armv7, arm"
+            error "不支持的架构: $ARCH_TYPE，支持: amd64, 386, arm64, armv7, armv6"
             ;;
     esac
     info "检测到架构: $ARCH"

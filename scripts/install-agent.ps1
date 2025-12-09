@@ -76,7 +76,7 @@ function Show-Help {
     Write-Host "  .\install-agent.ps1 -Token abc123 -PanelUrl https://panel.example.com -CoreType mihomo"
     Write-Host "  .\install-agent.ps1 -Uninstall"
     Write-Host ""
-    Write-Host "支持的架构: amd64, arm64"
+    Write-Host "支持的架构: amd64, arm64, 386"
     Write-Host ""
     exit 0
 }
