@@ -332,9 +332,14 @@ export const deployServer = (serverId: number, type: string) => {
   return api.post(`/servers/${serverId}/deploy`, { type })
 }
 
-// 全部部署（向所有存活 Agent 发送部署核心 + 自我更新指令）
+// 全部部署（向所有存活 Agent 发送部署核心指令）
 export const deployAll = () => {
   return api.post('/servers/deploy-all')
+}
+
+// Agent 更新（向所有存活 Agent 发送自我更新指令）
+export const updateAllAgents = () => {
+  return api.post('/servers/update-agents')
 }
 
 // 部署相关 - SSE

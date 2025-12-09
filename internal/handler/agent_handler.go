@@ -702,7 +702,7 @@ func generateMsgID() string {
 	return time.Now().Format("20060102150405.000000")
 }
 
-// handleDeployAll 全部部署（向所有存活 Agent 发送部署核心 + 自我更新指令）
+// handleDeployAll 全部部署（向所有存活 Agent 发送部署核心指令）
 // 异步执行，立即返回，不阻塞面板
 func (s *Server) handleDeployAll(c *gin.Context) {
 	// 获取所有启用的服务器
@@ -746,13 +746,13 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 	go func(aliveServers []aliveServer) {
 		for _, srv := range aliveServers {
 			go func(srv aliveServer) {
-				// 1. 生成配置
+				// 生成配置
 				config, err := GenerateServerConfig(&srv.Server, srv.CoreType)
 				if err != nil {
 					return
 				}
 
-				// 2. 发送部署核心指令（等待响应）
+				// 发送部署核心指令
 				deployCoreData := &agent.DeployCoreData{
 					CoreType:   srv.CoreType,
 					TargetPath: "/root/" + srv.CoreType,
@@ -766,24 +766,55 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 					Timestamp: time.Now().Unix(),
 				}
 
-				resp, err := agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 5*time.Second)
-				if err != nil || resp.Error != "" {
-					return
-				}
-
-				// 3. 发送自我更新指令（单向通知）
-				selfUpdateMsg := &agent.Message{
-					ID:        generateMsgID(),
-					Type:      agent.MsgTypeSelfUpdate,
-					Timestamp: time.Now().Unix(),
-				}
-				srv.Conn.WriteJSON(selfUpdateMsg)
+				agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 5*time.Second)
 			}(srv)
 		}
 	}(aliveServers)
 
 	successJSON(c, gin.H{
-		"message": "全部部署任务已启动",
+		"message": "部署任务已启动",
 		"total":   len(aliveServers),
+	})
+}
+
+// handleUpdateAgents 更新所有 Agent（向所有存活 Agent 发送自我更新指令）
+func (s *Server) handleUpdateAgents(c *gin.Context) {
+	// 获取所有启用的服务器
+	var servers []database.Server
+	if err := database.DB.Where("enabled = ?", true).Find(&servers).Error; err != nil {
+		errorJSON(c, http.StatusInternalServerError, "获取服务器列表失败")
+		return
+	}
+
+	if len(servers) == 0 {
+		errorJSON(c, http.StatusBadRequest, "没有启用的服务器")
+		return
+	}
+
+	// 收集存活的 Agent
+	aliveCount := 0
+	agentHub.mu.RLock()
+	for _, server := range servers {
+		if conn, ok := agentHub.serverMap[server.ID]; ok && conn != nil && conn.IsAlive() {
+			// 发送自我更新指令
+			selfUpdateMsg := &agent.Message{
+				ID:        generateMsgID(),
+				Type:      agent.MsgTypeSelfUpdate,
+				Timestamp: time.Now().Unix(),
+			}
+			conn.Conn.WriteJSON(selfUpdateMsg)
+			aliveCount++
+		}
+	}
+	agentHub.mu.RUnlock()
+
+	if aliveCount == 0 {
+		errorJSON(c, http.StatusBadRequest, "没有存活的 Agent")
+		return
+	}
+
+	successJSON(c, gin.H{
+		"message": "Agent 更新指令已发送",
+		"total":   aliveCount,
 	})
 }

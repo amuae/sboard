@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"crypto/md5"
 	"embed"
 	"encoding/base64"
@@ -1008,8 +1009,8 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 
 	log.Printf("开始自我更新 (平台: %s/%s)", runtime.GOOS, runtime.GOARCH)
 
-	// 确定下载 URL（使用 GitHub 加速域名）
-	// 格式: https://ghfast.top/https://github.com/amuae/sboard/releases/latest/download/agent-{os}-{arch}
+	// 确定下载 URL
+	// 格式: https://github.com/amuae/sboard/releases/latest/download/sboard-agent_{os}_{arch}.zip
 	osName := runtime.GOOS
 	archName := runtime.GOARCH
 
@@ -1027,14 +1028,11 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		archName = "armv7" // 默认使用 armv7，兼容性更好
 	}
 
-	// 文件名
-	fileName := fmt.Sprintf("agent-%s-%s", osName, archName)
-	if osName == "windows" {
-		fileName += ".exe"
-	}
+	// 文件名格式：sboard-agent_{os}_{arch}.zip
+	zipFileName := fmt.Sprintf("sboard-agent_%s_%s.zip", osName, archName)
 
-	// 下载 URL（使用加速域名）
-	downloadURL := fmt.Sprintf("https://ghfast.top/https://github.com/amuae/sboard/releases/latest/download/%s", fileName)
+	// 下载 URL（使用 ghfast.top 加速域名）
+	downloadURL := fmt.Sprintf("https://ghfast.top/https://github.com/amuae/sboard/releases/latest/download/%s", zipFileName)
 
 	log.Printf("下载地址: %s", downloadURL)
 
@@ -1050,10 +1048,24 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		return
 	}
 
-	// 下载新版本到临时文件
-	tempPath := execPath + ".new"
-	if err := downloadFile(downloadURL, tempPath); err != nil {
+	// 下载 zip 文件到临时路径
+	tempZipPath := execPath + ".zip"
+	if err := downloadFile(downloadURL, tempZipPath); err != nil {
 		log.Printf("下载新版本失败: %v", err)
+		os.Remove(tempZipPath)
+		return
+	}
+	defer os.Remove(tempZipPath) // 确保清理 zip 文件
+
+	// 从 zip 中提取可执行文件
+	binaryName := "sboard-agent"
+	if runtime.GOOS == "windows" {
+		binaryName = "sboard-agent.exe"
+	}
+
+	tempPath := execPath + ".new"
+	if err := extractFromZip(tempZipPath, binaryName, tempPath); err != nil {
+		log.Printf("解压新版本失败: %v", err)
 		os.Remove(tempPath)
 		return
 	}
@@ -1092,6 +1104,41 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		// 如果服务管理器重启失败，直接退出让 systemd 重启
 		os.Exit(0)
 	}
+}
+
+// extractFromZip 从 zip 文件中提取指定文件
+func extractFromZip(zipPath, fileName, destPath string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("打开 zip 文件失败: %v", err)
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if f.Name == fileName || filepath.Base(f.Name) == fileName {
+			rc, err := f.Open()
+			if err != nil {
+				return fmt.Errorf("打开 zip 内文件失败: %v", err)
+			}
+			defer rc.Close()
+
+			out, err := os.Create(destPath)
+			if err != nil {
+				return fmt.Errorf("创建目标文件失败: %v", err)
+			}
+			defer out.Close()
+
+			written, err := io.Copy(out, rc)
+			if err != nil {
+				return fmt.Errorf("写入文件失败: %v", err)
+			}
+
+			log.Printf("解压文件: %s (%d bytes)", fileName, written)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("zip 中未找到文件: %s", fileName)
 }
 
 // downloadFile 下载文件

@@ -1,14 +1,18 @@
 <template>
   <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2><i class="bi bi-hdd-network"></i> 服务器管理</h2>
+      <h2>服务器</h2>
       <div>
-        <button class="btn btn-warning me-2" @click="deployAll" :disabled="deploying">
-          <span v-if="deploying" class="spinner-border spinner-border-sm me-1"></span>
-          <i v-else class="bi bi-arrow-clockwise"></i> 全部部署
+        <button class="btn btn-info btn-sm me-2" @click="updateAllAgents" :disabled="updatingAgents">
+          <span v-if="updatingAgents" class="spinner-border spinner-border-sm me-1"></span>
+          <i v-else class="bi bi-cloud-download"></i> Agent更新
         </button>
-        <button class="btn btn-primary" @click="openAddModal">
-          <i class="bi bi-plus-lg"></i> 添加服务器
+        <button class="btn btn-warning btn-sm me-2" @click="deployAll" :disabled="deploying">
+          <span v-if="deploying" class="spinner-border spinner-border-sm me-1"></span>
+          <i v-else class="bi bi-arrow-clockwise"></i> 部署
+        </button>
+        <button class="btn btn-primary btn-sm" @click="openAddModal">
+          <i class="bi bi-plus-lg"></i> 添加
         </button>
       </div>
     </div>
@@ -617,7 +621,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, inject, computed } from 'vue'
 import { Modal } from 'bootstrap'
-import { getServers, createServer, updateServer, deleteServer, getNodes, deployServer, deployAll as apiDeployAll, regenerateAgentToken, getServersStatus, reorderServers, getNodeConfigs, saveNodeConfig as saveNodeConfigApi, type Server, type Node, type ServerStatus, type NodeConfig } from '@/api'
+import { getServers, createServer, updateServer, deleteServer, getNodes, deployServer, deployAll as apiDeployAll, updateAllAgents as apiUpdateAllAgents, regenerateAgentToken, getServersStatus, reorderServers, getNodeConfigs, saveNodeConfig as saveNodeConfigApi, type Server, type Node, type ServerStatus, type NodeConfig } from '@/api'
 
 const showToast = inject<(type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void>('showToast')!
 
@@ -652,6 +656,7 @@ const deleting = ref(false)
 // 部署
 const deploying = ref(false)
 const deployOutput = ref('')
+const updatingAgents = ref(false)
 
 // Agent 相关
 const regeneratingToken = ref(false)
@@ -1227,6 +1232,21 @@ async function deployFolder(server: ServerWithState) {
   }
 }
 
+async function updateAllAgents() {
+  updatingAgents.value = true
+  
+  try {
+    const res = await apiUpdateAllAgents()
+    const data = res.data.data
+    
+    showToast('success', '成功', `${data.message}（共 ${data.total} 个存活 Agent）`)
+  } catch (error: any) {
+    showToast('error', '错误', error.response?.data?.error || 'Agent 更新失败')
+  } finally {
+    updatingAgents.value = false
+  }
+}
+
 async function deployAll() {
   deploying.value = true
   
@@ -1234,7 +1254,6 @@ async function deployAll() {
     const res = await apiDeployAll()
     const data = res.data.data
     
-    // 后端已改为异步执行，立即返回
     showToast('success', '成功', `${data.message}（共 ${data.total} 个存活 Agent）`)
   } catch (error: any) {
     showToast('error', '错误', error.response?.data?.error || '部署失败')
