@@ -99,9 +99,11 @@ export interface User {
   uuid: string
   level: number
   expiry_date: string
-  enabled: boolean
+  enabled: number
   traffic_limit: number
   traffic_used: number
+  dns_resolve: string
+  notes: string
   created_at: string
   updated_at: string
 }
@@ -214,7 +216,8 @@ export interface Server {
   node_2: string
   node_3: string
   dns_resolve: string
-  enabled: boolean
+  enabled: number
+  sort_order: number
   // Agent 相关
   agent_token: string
   agent_id: string
@@ -226,6 +229,10 @@ export interface Server {
   disk_usage: number
   net_in: number
   net_out: number
+  // 流量统计
+  monthly_in: number
+  monthly_out: number
+  traffic_reset: string
   // 其他
   notes: string
   last_deploy_at: string
