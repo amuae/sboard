@@ -5,7 +5,7 @@
 ## 特性
 
 - 🚀 单二进制部署，无需依赖
-- 🌐 多协议支持 (VMess, VLESS, Trojan, Shadowsocks, Hysteria2)
+- 🌐 多协议支持 (VMess, VLESS, Trojan, Anytls, Shadowsocks, Hysteria2)
 - 📋 订阅链接生成 (Mihomo, sing-box, V2Ray)
 - 📡 Agent 远程部署与管理
 - 🖥️ 服务器实时监控
@@ -15,40 +15,64 @@
 
 | 组件 | Linux | Windows | macOS |
 |------|-------|---------|-------|
-| 面板 (sboard) | amd64, 386, arm64, armv7, arm | amd64, arm64, 386 | amd64, arm64 |
-| Agent | amd64, 386, arm64, armv7, arm | amd64, arm64, 386 | amd64, arm64 |
+| 面板 (sboard) | amd64, 386, arm64, armv7, armv6 | amd64, arm64, 386 | amd64, arm64 |
+| Agent | amd64, 386, arm64, armv7, armv6 | amd64, arm64, 386 | amd64, arm64 |
 
 ## 快速安装
 
 ### 面板一键安装
 
-```bash
-# 直接安装
-curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
+**Linux / macOS:**
 
-# 国内加速
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
+直接安装：
+```bash
+curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install.sh | bash
 ```
+
+国内加速：
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell 管理员):**
+
+直接安装：
+```powershell
+irm https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.ps1 | iex
+```
+
+国内加速：
+```powershell
+irm https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.ps1 | iex
+```
+
+### Agent 安装
+
+Agent 安装命令由面板自动生成，包含节点 Token。请在面板中添加节点后复制安装命令。
 
 ### Agent 一键卸载
 
 **Linux / macOS:**
 
+直接卸载：
 ```bash
-# 直接卸载
 curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
+```
 
-# 国内加速
+国内加速：
+```bash
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
 ```
 
 **Windows (PowerShell 管理员):**
 
+直接卸载：
 ```powershell
-# 直接卸载
 irm https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
+```
 
-# 国内加速
+国内加速：
+```powershell
 irm https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
 ```
 
