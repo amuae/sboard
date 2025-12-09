@@ -1229,28 +1229,14 @@ async function deployFolder(server: ServerWithState) {
 
 async function deployAll() {
   deploying.value = true
-  deployOutput.value = '开始全部部署...\n'
-  deployModal?.show()
   
   try {
     const res = await apiDeployAll()
     const data = res.data.data
     
-    deployOutput.value += `\n存活 Agent 数量: ${data.total}\n`
-    deployOutput.value += `成功: ${data.success}, 失败: ${data.failed}\n\n`
-    
-    for (const result of data.results) {
-      if (result.success) {
-        deployOutput.value += `✓ ${result.server_name}: ${result.message}\n`
-      } else {
-        deployOutput.value += `✗ ${result.server_name}: ${result.error}\n`
-      }
-    }
-    
-    deployOutput.value += '\n全部部署完成！'
-    showToast('success', '成功', `部署完成: ${data.success}/${data.total} 成功`)
+    // 后端已改为异步执行，立即返回
+    showToast('success', '成功', `${data.message}（共 ${data.total} 个存活 Agent）`)
   } catch (error: any) {
-    deployOutput.value += `部署失败: ${error.response?.data?.error || '未知错误'}\n`
     showToast('error', '错误', error.response?.data?.error || '部署失败')
   } finally {
     deploying.value = false
