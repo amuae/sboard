@@ -662,7 +662,7 @@ func (s *Server) handleDeployCoreToAgent(c *gin.Context) {
 		Data: rawData,
 	}
 
-	resp, err := agentHub.SendCommand(uint(serverID), msg, 120*time.Second)
+	resp, err := agentHub.SendCommand(uint(serverID), msg, 5*time.Second)
 	if err != nil {
 		if _, ok := err.(*AgentOfflineError); ok {
 			errorJSON(c, http.StatusServiceUnavailable, "Agent 离线")
@@ -766,7 +766,7 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 					Timestamp: time.Now().Unix(),
 				}
 
-				resp, err := agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 120*time.Second)
+				resp, err := agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 5*time.Second)
 				if err != nil || resp.Error != "" {
 					return
 				}
