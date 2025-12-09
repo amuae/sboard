@@ -49,7 +49,7 @@ func main() {
 	)
 
 	flag.StringVar(&targetOS, "os", runtime.GOOS, "目标操作系统 (linux/windows/darwin)")
-	flag.StringVar(&targetArch, "arch", runtime.GOARCH, "目标架构 (amd64/arm64)")
+	flag.StringVar(&targetArch, "arch", runtime.GOARCH, "目标架构 (amd64/386/arm64/armv7/armv6)")
 	flag.BoolVar(&skipFrontend, "skip-frontend", false, "跳过前端构建")
 	flag.BoolVar(&skipDownload, "skip-download", false, "跳过核心下载")
 	flag.BoolVar(&onlyDownload, "only-download", false, "只下载核心，不编译")
@@ -220,10 +220,17 @@ func downloadMihomo(targetOS, targetArch string, verbose bool) error {
 	}
 
 	// 转换架构名称为 mihomo 使用的格式
+	// mihomo 支持: amd64, 386, arm64, armv5, armv6, armv7
 	archName := targetArch
 	switch targetArch {
 	case "arm":
-		archName = "armv7" // mihomo 使用 armv7
+		archName = "armv7" // 默认使用 armv7
+	case "armv5":
+		archName = "armv5"
+	case "armv6":
+		archName = "armv6"
+	case "armv7":
+		archName = "armv7"
 	case "386":
 		archName = "386"
 	case "mipsle":
@@ -289,10 +296,19 @@ func downloadSingbox(targetOS, targetArch string, verbose bool) error {
 	}
 
 	// 转换架构名称为 sing-box 使用的格式
+	// sing-box 支持: amd64, 386, arm64, armv5, armv6, armv7
 	archName := targetArch
 	switch targetArch {
 	case "arm":
-		archName = "armv7" // sing-box 使用 armv7
+		archName = "armv7" // 默认使用 armv7
+	case "armv5":
+		archName = "armv5"
+	case "armv6":
+		archName = "armv6"
+	case "armv7":
+		archName = "armv7"
+	case "386":
+		archName = "386"
 	case "mipsle":
 		archName = "mipsle-softfloat"
 	case "mips":
