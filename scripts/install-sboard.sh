@@ -35,10 +35,8 @@ ADMIN_PASS=""
 INTERACTIVE="true"  # 是否交互式
 
 # GitHub 加速配置 (国内加速)
-# API 代理 (gh.llkk.cc 支持 API)
-GH_PROXY_API="https://gh.llkk.cc/"
-# 下载代理 (ghproxy.cn 速度快)
-GH_PROXY="https://ghproxy.cn/"
+GH_PROXY="https://ghfast.top/"
+GH_PROXY_API="https://ghfast.top/"
 
 # 服务文件路径
 SYSTEMD_SERVICE="/etc/systemd/system/${SERVICE_NAME}.service"

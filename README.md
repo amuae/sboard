@@ -27,7 +27,7 @@
 curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 
 # 国内加速
-curl -fsSL https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 ```
 
 ### Agent 一键卸载
@@ -39,7 +39,7 @@ curl -fsSL https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/mai
 curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
 
 # 国内加速
-curl -fsSL https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent-auto.sh | bash
 ```
 
 **Windows (PowerShell 管理员):**
@@ -49,7 +49,7 @@ curl -fsSL https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/mai
 irm https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
 
 # 国内加速
-irm https://ghproxy.cn/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
+irm https://ghfast.top/https://raw.githubusercontent.com/amuae/sboard/main/scripts/uninstall-agent.ps1 | iex
 ```
 
 ## 服务管理

@@ -18,8 +18,8 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# GitHub 加速 (ghproxy.cn 下载速度快)
-GH_PROXY="https://ghproxy.cn/"
+# GitHub 加速
+GH_PROXY="https://ghfast.top/"
 REPO_URL="https://raw.githubusercontent.com/amuae/sboard/main/scripts"
 
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
