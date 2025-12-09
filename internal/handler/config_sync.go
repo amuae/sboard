@@ -281,8 +281,9 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 				reality["short_id"] = []string{node.RealityShortId}
 			}
 			tls["reality"] = reality
-		} else {
-			// 使用相对路径，核心和证书在同一目录
+		} else if !node.RealityEnabled {
+			// 普通 TLS 证书配置，使用相对路径
+			// 启用 Reality 时不需要证书
 			tls["certificate_path"] = node.CertPath
 			tls["key_path"] = node.KeyPath
 		}
@@ -348,7 +349,8 @@ func buildMihomoListener(node *database.InboundNode, users []NodeUser) *yaml.Nod
 			switch node.Protocol {
 			case "vless":
 				addYamlField(userNode, "uuid", user.UUID)
-				if user.Flow != "" {
+				// flow 只在 Reality 或纯 TLS（无传输层）时生效
+				if user.Flow != "" && (node.RealityEnabled || (node.TlsEnabled && !node.TransportEnabled)) {
 					addYamlField(userNode, "flow", user.Flow)
 				}
 			case "vmess":
