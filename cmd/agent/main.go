@@ -145,7 +145,8 @@ func loadConfig(path string) (*Config, error) {
 		config.CorePath = "/usr/local/bin/sing-box"
 	}
 	if config.ConfigDir == "" {
-		config.ConfigDir = "/etc/sing-box"
+		// 默认使用核心程序所在目录作为配置目录
+		config.ConfigDir = filepath.Dir(config.CorePath)
 	}
 	if config.AgentID == "" {
 		// 使用主机名作为 Agent ID
