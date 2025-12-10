@@ -13,13 +13,12 @@ import (
 // Server HTTP 服务器
 type Server struct {
 	config     *config.Config
-	configPath string
 	router     *gin.Engine
 	frontendFS embed.FS
 }
 
 // NewServer 创建新的服务器实例
-func NewServer(cfg *config.Config, configPath string, frontendFS embed.FS) *Server {
+func NewServer(cfg *config.Config, frontendFS embed.FS) *Server {
 	// 设置 Gin 模式
 	if cfg.Server.Debug {
 		gin.SetMode(gin.DebugMode)
@@ -37,7 +36,6 @@ func NewServer(cfg *config.Config, configPath string, frontendFS embed.FS) *Serv
 
 	s := &Server{
 		config:     cfg,
-		configPath: configPath,
 		router:     router,
 		frontendFS: frontendFS,
 	}

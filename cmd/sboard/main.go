@@ -104,7 +104,7 @@ func main() {
 	sched.Start()
 
 	// 创建并启动 HTTP 服务器
-	server := handler.NewServer(cfg, configPath, frontendFS)
+	server := handler.NewServer(cfg, frontendFS)
 
 	// 优雅关闭
 	go func() {

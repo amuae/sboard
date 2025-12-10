@@ -59,7 +59,7 @@ func (s *Server) handleGetOAuthProviders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success":                true,
 		"data":                   providers,
-		"disable_password_login": s.config.OAuth.DisablePasswordLogin && len(providers) > 0,
+		"disable_password_login": database.GetDisablePasswordLogin() && len(providers) > 0,
 	})
 }
 
@@ -363,7 +363,7 @@ func (s *Server) handleGetOAuthProvidersAdmin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success":                true,
 		"data":                   providers,
-		"disable_password_login": s.config.OAuth.DisablePasswordLogin,
+		"disable_password_login": database.GetDisablePasswordLogin(),
 	})
 }
 
@@ -419,11 +419,8 @@ func (s *Server) handleSaveOAuthSettings(c *gin.Context) {
 		return
 	}
 
-	// 更新配置
-	s.config.OAuth.DisablePasswordLogin = req.DisablePasswordLogin
-
-	// 保存到配置文件
-	if err := s.config.Save(s.configPath); err != nil {
+	// 保存到数据库
+	if err := database.SetDisablePasswordLogin(req.DisablePasswordLogin); err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存配置失败: "+err.Error())
 		return
 	}

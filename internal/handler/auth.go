@@ -21,7 +21,7 @@ type LoginRequest struct {
 // handleLogin 处理登录
 func (s *Server) handleLogin(c *gin.Context) {
 	// 检查是否禁用密码登录
-	if s.config.OAuth.DisablePasswordLogin {
+	if database.GetDisablePasswordLogin() {
 		// 检查是否有启用的 OAuth 提供商
 		_, githubEnabled, _ := database.GetGitHubOAuthConfig()
 		if githubEnabled {
