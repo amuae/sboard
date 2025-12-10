@@ -186,6 +186,9 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 			} else {
 				userEntry["password"] = user.UUID
 			}
+		case "naive":
+			userEntry["username"] = user.Name
+			userEntry["password"] = user.UUID
 		}
 		userList = append(userList, userEntry)
 	}
@@ -212,12 +215,23 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 				"password": node.Hy2ObfsPassword,
 			})
 		}
+	case "naive":
+		// Naive 用户列表格式不同，只需 username 和 password
+		naiveUsers := []map[string]interface{}{}
+		for _, user := range users {
+			naiveUsers = append(naiveUsers, map[string]interface{}{
+				"username": user.Name,
+				"password": user.UUID,
+			})
+		}
+		inbound.Set("users", naiveUsers)
 	default:
 		inbound.Set("users", userList)
 	}
 
 	// TLS 配置（可选，trojan/anytls 也可以不启用 TLS）
-	if node.TlsEnabled && node.Protocol != "shadowsocks" {
+	// Naive 协议必须启用 TLS
+	if node.TlsEnabled && node.Protocol != "shadowsocks" || node.Protocol == "naive" {
 		tls := map[string]interface{}{
 			"enabled":     true,
 			"server_name": node.ServerName,

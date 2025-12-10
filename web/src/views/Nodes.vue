@@ -88,6 +88,7 @@
                     <option value="anytls">AnyTLS</option>
                     <option value="shadowsocks">Shadowsocks</option>
                     <option value="hysteria2">Hysteria2</option>
+                    <option value="naive">Naive</option>
                   </select>
                 </div>
                 <div class="col-md-6 mb-3">
@@ -101,12 +102,12 @@
               </div>
 
               <!-- TLS 配置 -->
-              <div class="form-check mb-2" v-if="formData.protocol !== 'shadowsocks'">
+              <div class="form-check mb-2" v-if="formData.protocol !== 'shadowsocks' && formData.protocol !== 'naive'">
                 <input class="form-check-input" type="checkbox" v-model="formData.tls_enabled" id="tlsEnabled">
                 <label class="form-check-label" for="tlsEnabled">启用 TLS</label>
               </div>
               
-              <div v-if="formData.tls_enabled && formData.protocol !== 'shadowsocks'" id="tlsFields">
+              <div v-if="(formData.tls_enabled || formData.protocol === 'naive') && formData.protocol !== 'shadowsocks'" id="tlsFields">
                 <div class="mb-2">
                   <label>Server Name</label>
                   <input type="text" class="form-control" v-model="formData.server_name">
@@ -126,12 +127,12 @@
                   </div>
                 </div>
                 
-                <!-- Reality 配置 -->
-                <div class="form-check mb-2">
+                <!-- Reality 配置 (Naive 不支持 Reality) -->
+                <div class="form-check mb-2" v-if="formData.protocol !== 'naive'">
                   <input class="form-check-input" type="checkbox" v-model="formData.reality_enabled" id="realityEnabled">
                   <label class="form-check-label" for="realityEnabled">启用 Reality</label>
                 </div>
-                <div v-if="formData.reality_enabled" id="realityFields">
+                <div v-if="formData.reality_enabled && formData.protocol !== 'naive'" id="realityFields">
                   <div class="mb-2">
                     <label>Reality Server (握手服务器)</label>
                     <input type="text" class="form-control" v-model="formData.reality_server" placeholder="www.apple.com">
@@ -159,11 +160,11 @@
               </div>
 
               <!-- 传输层配置 -->
-              <div class="form-check mb-2 mt-3" v-if="formData.protocol !== 'shadowsocks' && formData.protocol !== 'hysteria2'">
+              <div class="form-check mb-2 mt-3" v-if="formData.protocol !== 'shadowsocks' && formData.protocol !== 'hysteria2' && formData.protocol !== 'naive'">
                 <input class="form-check-input" type="checkbox" v-model="formData.transport_enabled" id="transportEnabled">
                 <label class="form-check-label" for="transportEnabled">启用传输层</label>
               </div>
-              <div v-if="formData.transport_enabled && formData.protocol !== 'shadowsocks' && formData.protocol !== 'hysteria2'" id="transportFields">
+              <div v-if="formData.transport_enabled && formData.protocol !== 'shadowsocks' && formData.protocol !== 'hysteria2' && formData.protocol !== 'naive'" id="transportFields">
                 <div class="mb-2">
                   <label>传输层类型</label>
                   <select class="form-select" v-model="formData.transport_type">
@@ -274,6 +275,20 @@
                     <input type="text" class="form-control" v-model="formData.hy2_obfs_password" placeholder="混淆密码（与认证密码不同）">
                     <small class="text-muted">用于混淆 QUIC 流量，防止被 DPI 识别</small>
                   </div>
+                </div>
+              </div>
+
+              <!-- Naive 配置 -->
+              <div v-if="formData.protocol === 'naive'" id="naiveFields" class="mt-3">
+                <div class="alert alert-info">
+                  <i class="bi bi-info-circle"></i> <strong>Naive 配置说明：</strong>
+                  <ul class="mb-0 mt-1">
+                    <li>Naive 协议基于 HTTP/2 或 HTTP/3（QUIC）</li>
+                    <li>必须配置 TLS 证书（下方自动显示证书配置）</li>
+                    <li>每个用户使用独立的 username + password 认证</li>
+                    <li>客户端需使用 naiveproxy 连接（不支持 sing-box 客户端）</li>
+                    <li>适合对抗深度包检测（DPI）</li>
+                  </ul>
                 </div>
               </div>
 
@@ -474,6 +489,12 @@ function onProtocolChange() {
   if (formData.value.protocol === 'hysteria2') {
     formData.value.tls_enabled = true
     formData.value.transport_enabled = false
+  }
+  // Naive 必须启用 TLS，不支持传输层和 Reality
+  if (formData.value.protocol === 'naive') {
+    formData.value.tls_enabled = true
+    formData.value.transport_enabled = false
+    formData.value.reality_enabled = false
   }
 }
 

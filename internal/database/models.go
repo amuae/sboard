@@ -70,7 +70,7 @@ func (u *ProxyUser) BeforeCreate(tx *gorm.DB) error {
 type InboundNode struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
 	Tag      string `gorm:"uniqueIndex;size:100;not null" json:"tag"`
-	Protocol string `gorm:"size:20;not null" json:"protocol"` // trojan/vless/vmess/anytls/shadowsocks/hysteria2
+	Protocol string `gorm:"size:20;not null" json:"protocol"` // trojan/vless/vmess/anytls/shadowsocks/hysteria2/naive
 	Listen   string `gorm:"size:20;default:'::'" json:"listen"`
 	Port     int    `gorm:"not null;uniqueIndex" json:"port"`
 

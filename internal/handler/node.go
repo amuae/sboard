@@ -179,7 +179,7 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 	}
 
 	// 验证协议
-	validProtocols := []string{"trojan", "vless", "vmess", "anytls", "shadowsocks", "hysteria2"}
+	validProtocols := []string{"trojan", "vless", "vmess", "anytls", "shadowsocks", "hysteria2", "naive"}
 	isValidProtocol := false
 	for _, p := range validProtocols {
 		if req.Protocol == p {
@@ -355,6 +355,19 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 
 	// 更新字段
 	if req.Protocol != "" {
+		// 验证协议类型
+		validProtocols := []string{"trojan", "vless", "vmess", "anytls", "shadowsocks", "hysteria2", "naive"}
+		isValid := false
+		for _, p := range validProtocols {
+			if req.Protocol == p {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			errorJSON(c, http.StatusBadRequest, "无效的协议类型")
+			return
+		}
 		node.Protocol = req.Protocol
 	}
 	if req.Listen != "" {
