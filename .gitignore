@@ -49,3 +49,4 @@ tmp/
 backup/
 agent-linux
 sboard-linux
+sboard-agent-arm64
