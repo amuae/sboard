@@ -72,6 +72,9 @@ func (s *Server) handleGitHubLogin(c *gin.Context) {
 		return
 	}
 
+	// 检查是否为授权模式
+	authorizeMode := c.Query("authorize") == "true"
+
 	// 生成 state 防止 CSRF
 	state := generateState()
 	oauthStateStore[state] = time.Now().Add(10 * time.Minute)
@@ -82,7 +85,12 @@ func (s *Server) handleGitHubLogin(c *gin.Context) {
 	// 构建授权 URL
 	params := url.Values{}
 	params.Set("client_id", githubConfig.ClientID)
-	params.Set("redirect_uri", s.getGitHubCallbackURL(c))
+	callbackURL := s.getGitHubCallbackURL(c)
+	if authorizeMode {
+		// 在回调 URL 中添加 authorize 标志
+		callbackURL += "?authorize=true"
+	}
+	params.Set("redirect_uri", callbackURL)
 	params.Set("scope", "read:user user:email")
 	params.Set("state", state)
 
@@ -90,9 +98,7 @@ func (s *Server) handleGitHubLogin(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"url": authorizeURL,
-		},
+		"data":    authorizeURL,
 	})
 }
 
@@ -108,9 +114,14 @@ func (s *Server) handleGitHubCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
 	errorParam := c.Query("error")
+	authorizeMode := c.Query("authorize") == "true" // 检查是否为授权模式
 
 	if errorParam != "" {
-		c.Redirect(http.StatusFound, "/?error="+errorParam)
+		if authorizeMode {
+			c.Redirect(http.StatusFound, "/?error=oauth_authorize_failed")
+		} else {
+			c.Redirect(http.StatusFound, "/?error="+errorParam)
+		}
 		return
 	}
 
@@ -135,7 +146,32 @@ func (s *Server) handleGitHubCallback(c *gin.Context) {
 		return
 	}
 
-	// 检查用户是否在允许列表中
+	// 授权模式：将用户添加到允许列表
+	if authorizeMode {
+		// 检查用户是否已在列表中
+		userExists := false
+		for _, allowedUser := range githubConfig.AllowedUsers {
+			if strings.EqualFold(allowedUser, githubUser.Login) {
+				userExists = true
+				break
+			}
+		}
+
+		if !userExists {
+			// 添加用户到允许列表
+			githubConfig.AllowedUsers = append(githubConfig.AllowedUsers, githubUser.Login)
+			if err := database.SaveGitHubOAuthConfig(githubEnabled, githubConfig); err != nil {
+				c.Redirect(http.StatusFound, "/?error=save_config_failed")
+				return
+			}
+		}
+
+		// 重定向回管理界面，显示成功消息
+		c.Redirect(http.StatusFound, "/?oauth_authorized="+url.QueryEscape(githubUser.Login))
+		return
+	}
+
+	// 普通登录模式：检查用户是否在允许列表中
 	if len(githubConfig.AllowedUsers) > 0 {
 		allowed := false
 		for _, allowedUser := range githubConfig.AllowedUsers {
@@ -368,6 +404,34 @@ func (s *Server) handleGetOAuthProvider(c *gin.Context) {
 	default:
 		errorJSON(c, http.StatusNotFound, "未知的 OAuth 提供商")
 	}
+}
+
+// SaveOAuthSettingsRequest 保存全局 OAuth 设置请求
+type SaveOAuthSettingsRequest struct {
+	DisablePasswordLogin bool `json:"disable_password_login"`
+}
+
+// handleSaveOAuthSettings 保存全局 OAuth 设置
+func (s *Server) handleSaveOAuthSettings(c *gin.Context) {
+	var req SaveOAuthSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errorJSON(c, http.StatusBadRequest, "无效的请求参数")
+		return
+	}
+
+	// 更新配置
+	s.config.OAuth.DisablePasswordLogin = req.DisablePasswordLogin
+
+	// 保存到配置文件
+	if err := s.config.Save(s.configPath); err != nil {
+		errorJSON(c, http.StatusInternalServerError, "保存配置失败: "+err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "全局 OAuth 设置已保存",
+	})
 }
 
 // SaveGitHubOAuthRequest 保存 GitHub OAuth 请求

@@ -47,8 +47,10 @@ export const getOAuthProviders = () => {
   return api.get('/auth/oauth/providers')
 }
 
-export const getGitHubLoginUrl = () => {
-  return api.get('/auth/github/login')
+export const getGitHubLoginUrl = (authorizeMode: boolean = false) => {
+  return api.get('/auth/github/login', {
+    params: { authorize: authorizeMode }
+  })
 }
 
 // OAuth 管理 API
@@ -78,6 +80,12 @@ export const saveOAuthProvider = (name: string, data: {
   allowed_users: string[]
 }) => {
   return api.post(`/oauth/providers/${name}`, data)
+}
+
+export const saveOAuthSettings = (data: {
+  disable_password_login: boolean
+}) => {
+  return api.post('/oauth/settings', data)
 }
 
 export const changeUsername = (password: string, newUsername: string) => {

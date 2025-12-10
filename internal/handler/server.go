@@ -13,12 +13,13 @@ import (
 // Server HTTP 服务器
 type Server struct {
 	config     *config.Config
+	configPath string
 	router     *gin.Engine
 	frontendFS embed.FS
 }
 
 // NewServer 创建新的服务器实例
-func NewServer(cfg *config.Config, frontendFS embed.FS) *Server {
+func NewServer(cfg *config.Config, configPath string, frontendFS embed.FS) *Server {
 	// 设置 Gin 模式
 	if cfg.Server.Debug {
 		gin.SetMode(gin.DebugMode)
@@ -36,6 +37,7 @@ func NewServer(cfg *config.Config, frontendFS embed.FS) *Server {
 
 	s := &Server{
 		config:     cfg,
+		configPath: configPath,
 		router:     router,
 		frontendFS: frontendFS,
 	}
@@ -128,6 +130,7 @@ func (s *Server) setupRoutes() {
 				oauth.GET("/providers", s.handleGetOAuthProvidersAdmin)   // 获取所有提供商（管理）
 				oauth.GET("/providers/:name", s.handleGetOAuthProvider)   // 获取指定提供商
 				oauth.POST("/providers/:name", s.handleSaveOAuthProvider) // 保存提供商配置
+				oauth.POST("/settings", s.handleSaveOAuthSettings)        // 保存全局 OAuth 设置
 			}
 
 			// 配置预览

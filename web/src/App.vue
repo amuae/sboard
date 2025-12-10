@@ -132,6 +132,31 @@
                 <span class="ms-2">加载中...</span>
               </div>
               <div v-else>
+                <!-- 全局 OAuth 设置 -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <i class="bi bi-gear"></i> 全局设置
+                  </div>
+                  <div class="card-body">
+                    <div class="form-check form-switch">
+                      <input 
+                        class="form-check-input" 
+                        type="checkbox" 
+                        id="disablePasswordLogin" 
+                        v-model="oauthSettings.disablePasswordLogin"
+                        :disabled="!githubOAuth.enabled || githubOAuth.allowed_users.length === 0"
+                      >
+                      <label class="form-check-label" for="disablePasswordLogin">
+                        禁用密码登录
+                      </label>
+                    </div>
+                    <div class="form-text">
+                      <i class="bi bi-exclamation-triangle"></i>
+                      启用后将只允许 OAuth 登录，请确保至少有一个授权用户
+                    </div>
+                  </div>
+                </div>
+
                 <!-- GitHub OAuth -->
                 <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
@@ -160,14 +185,38 @@
                       </div>
                     </div>
                     <div class="mb-3">
-                      <label class="form-label">允许的用户 <small class="text-muted">(留空允许所有)</small></label>
-                      <input 
-                        type="text" 
-                        class="form-control" 
-                        v-model="githubOAuth.allowed_users_str" 
-                        placeholder="用逗号分隔多个 GitHub 用户名，如: user1,user2"
-                      >
-                      <div class="form-text">只有列表中的 GitHub 用户可以登录，留空则允许所有 GitHub 用户</div>
+                      <label class="form-label">授权的用户</label>
+                      <div class="d-flex align-items-center gap-2 mb-2">
+                        <button 
+                          type="button" 
+                          class="btn btn-outline-primary btn-sm"
+                          @click="authorizeGitHubUser"
+                          :disabled="!githubOAuth.client_id || !githubOAuth.has_secret"
+                        >
+                          <i class="bi bi-person-plus"></i> 添加授权用户
+                        </button>
+                        <small class="text-muted">通过 OAuth 验证后添加</small>
+                      </div>
+                      <div v-if="githubOAuth.allowed_users.length > 0" class="border rounded p-2">
+                        <div 
+                          v-for="(user, index) in githubOAuth.allowed_users" 
+                          :key="index"
+                          class="d-flex justify-content-between align-items-center mb-1"
+                        >
+                          <span><i class="bi bi-person-check"></i> {{ user }}</span>
+                          <button 
+                            type="button" 
+                            class="btn btn-sm btn-outline-danger"
+                            @click="removeAllowedUser(index)"
+                          >
+                            <i class="bi bi-trash"></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div v-else class="text-muted small">
+                        <i class="bi bi-info-circle"></i> 暂无授权用户，请先添加
+                      </div>
+                      <div class="form-text">只有授权的 GitHub 用户可以登录系统</div>
                     </div>
                     <div class="alert alert-info mb-0">
                       <i class="bi bi-info-circle"></i>
@@ -199,7 +248,7 @@
 import { ref, computed, watch, onMounted, nextTick, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Modal, Toast } from 'bootstrap'
-import { logout as apiLogout, changeUsername, changePassword, getOAuthProvidersAdmin, saveOAuthProvider } from './api'
+import { logout as apiLogout, changeUsername, changePassword, getOAuthProvidersAdmin, saveOAuthProvider, saveOAuthSettings } from './api'
 
 const router = useRouter()
 const route = useRoute()
@@ -272,13 +321,15 @@ let accountModal: Modal | null = null
 
 // OAuth 设置
 const oauthLoading = ref(false)
+const oauthSettings = ref({
+  disablePasswordLogin: false
+})
 const githubOAuth = ref({
   enabled: false,
   client_id: '',
   client_secret: '',
   has_secret: false,
-  allowed_users: [] as string[],
-  allowed_users_str: ''
+  allowed_users: [] as string[]
 })
 
 // 计算回调 URL
@@ -292,6 +343,10 @@ const loadOAuthSettings = async () => {
   try {
     const res = await getOAuthProvidersAdmin()
     if (res.data.success && res.data.data) {
+      // 加载全局设置
+      oauthSettings.value.disablePasswordLogin = res.data.disable_password_login || false
+      
+      // 加载 GitHub 配置
       const github = res.data.data.find((p: any) => p.name === 'github')
       if (github) {
         githubOAuth.value = {
@@ -299,8 +354,7 @@ const loadOAuthSettings = async () => {
           client_id: github.config?.client_id || '',
           client_secret: '',
           has_secret: github.config?.has_secret || false,
-          allowed_users: github.config?.allowed_users || [],
-          allowed_users_str: (github.config?.allowed_users || []).join(', ')
+          allowed_users: github.config?.allowed_users || []
         }
       }
     }
@@ -324,13 +378,15 @@ const resetAccountForm = () => {
   confirmPassword.value = ''
   accountTab.value = 'username'
   // 重置 OAuth 表单
+  oauthSettings.value = {
+    disablePasswordLogin: false
+  }
   githubOAuth.value = {
     enabled: false,
     client_id: '',
     client_secret: '',
     has_secret: false,
-    allowed_users: [],
-    allowed_users_str: ''
+    allowed_users: []
   }
 }
 
@@ -359,17 +415,17 @@ const saveAccountSettings = async () => {
       await changePassword(currentPassword.value, newPassword.value, confirmPassword.value)
       showToast('success', '成功', '密码修改成功')
     } else if (accountTab.value === 'oauth') {
-      // 保存 OAuth 设置
-      const allowedUsers = githubOAuth.value.allowed_users_str
-        .split(/[,，]/)
-        .map(s => s.trim())
-        .filter(s => s.length > 0)
+      // 保存全局 OAuth 设置
+      await saveOAuthSettings({
+        disable_password_login: oauthSettings.value.disablePasswordLogin
+      })
       
+      // 保存 GitHub OAuth 配置
       await saveOAuthProvider('github', {
         enabled: githubOAuth.value.enabled,
         client_id: githubOAuth.value.client_id,
         client_secret: githubOAuth.value.client_secret || undefined,
-        allowed_users: allowedUsers
+        allowed_users: githubOAuth.value.allowed_users
       })
       showToast('success', '成功', 'OAuth 设置已保存')
     }
@@ -393,6 +449,39 @@ const logout = async () => {
   router.push('/login')
 }
 
+// OAuth 授权用户管理
+const authorizeGitHubUser = async () => {
+  if (!githubOAuth.value.client_id || !githubOAuth.value.has_secret) {
+    showToast('error', '错误', '请先配置 Client ID 和 Client Secret')
+    return
+  }
+  
+  try {
+    // 保存当前设置（确保最新的配置生效）
+    await saveOAuthProvider('github', {
+      enabled: githubOAuth.value.enabled,
+      client_id: githubOAuth.value.client_id,
+      client_secret: githubOAuth.value.client_secret || undefined,
+      allowed_users: githubOAuth.value.allowed_users
+    })
+    
+    // 标记为授权流程
+    sessionStorage.setItem('oauth_authorize_mode', 'true')
+    
+    // 获取 GitHub OAuth 登录 URL（授权模式）
+    const res = await getGitHubLoginUrl(true)
+    if (res.data.success && res.data.data) {
+      window.location.href = res.data.data
+    }
+  } catch (error: any) {
+    showToast('error', '错误', error.response?.data?.error || '启动 OAuth 授权失败')
+  }
+}
+
+const removeAllowedUser = (index: number) => {
+  githubOAuth.value.allowed_users.splice(index, 1)
+}
+
 const onLoginSuccess = () => {
   isLoggedIn.value = true
 }
@@ -401,6 +490,8 @@ const onLoginSuccess = () => {
 const handleOAuthCallback = () => {
   const urlParams = new URLSearchParams(window.location.search)
   const oauthToken = urlParams.get('oauth_token')
+  const oauthAuthorized = urlParams.get('oauth_authorized')
+  
   if (oauthToken) {
     localStorage.setItem('token', oauthToken)
     isLoggedIn.value = true
@@ -408,6 +499,19 @@ const handleOAuthCallback = () => {
     window.history.replaceState({}, document.title, window.location.pathname)
     // 跳转到用户管理页面
     router.push('/users')
+  } else if (oauthAuthorized) {
+    // 授权成功，显示消息并重新加载 OAuth 设置
+    const username = oauthAuthorized
+    showToast('success', '成功', `用户 ${username} 已添加到授权列表`)
+    // 清除 URL 参数
+    window.history.replaceState({}, document.title, window.location.pathname)
+    // 清除授权模式标记
+    sessionStorage.removeItem('oauth_authorize_mode')
+    // 重新加载 OAuth 设置
+    loadOAuthSettings()
+    // 打开账户设置模态框的 OAuth 标签
+    accountTab.value = 'oauth'
+    showAccountModal.value = true
   }
 }
 
