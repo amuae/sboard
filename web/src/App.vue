@@ -191,7 +191,7 @@
                           type="button" 
                           class="btn btn-outline-primary btn-sm"
                           @click="authorizeGitHubUser"
-                          :disabled="!githubOAuth.client_id || !githubOAuth.has_secret"
+                          :disabled="!githubOAuth.client_id || (!githubOAuth.has_secret && !githubOAuth.client_secret)"
                         >
                           <i class="bi bi-person-plus"></i> 添加授权用户
                         </button>
@@ -248,7 +248,7 @@
 import { ref, computed, watch, onMounted, nextTick, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Modal, Toast } from 'bootstrap'
-import { logout as apiLogout, changeUsername, changePassword, getOAuthProvidersAdmin, saveOAuthProvider, saveOAuthSettings } from './api'
+import { logout as apiLogout, changeUsername, changePassword, getOAuthProvidersAdmin, saveOAuthProvider, saveOAuthSettings, getGitHubLoginUrl } from './api'
 
 const router = useRouter()
 const route = useRoute()
@@ -451,26 +451,23 @@ const logout = async () => {
 
 // OAuth 授权用户管理
 const authorizeGitHubUser = async () => {
-  if (!githubOAuth.value.client_id || !githubOAuth.value.has_secret) {
-    showToast('error', '错误', '请先配置 Client ID 和 Client Secret')
+  if (!githubOAuth.value.client_id) {
+    showToast('error', '错误', '请先配置 Client ID')
+    return
+  }
+  
+  if (!githubOAuth.value.has_secret && !githubOAuth.value.client_secret) {
+    showToast('error', '错误', '请先配置 Client Secret')
     return
   }
   
   try {
-    // 保存当前设置（确保最新的配置生效）
-    await saveOAuthProvider('github', {
-      enabled: githubOAuth.value.enabled,
-      client_id: githubOAuth.value.client_id,
-      client_secret: githubOAuth.value.client_secret || undefined,
-      allowed_users: githubOAuth.value.allowed_users
-    })
-    
-    // 标记为授权流程
-    sessionStorage.setItem('oauth_authorize_mode', 'true')
-    
     // 获取 GitHub OAuth 登录 URL（授权模式）
     const res = await getGitHubLoginUrl(true)
     if (res.data.success && res.data.data) {
+      // 标记为授权流程
+      sessionStorage.setItem('oauth_authorize_mode', 'true')
+      // 跳转到 GitHub 授权页面
       window.location.href = res.data.data
     }
   } catch (error: any) {
