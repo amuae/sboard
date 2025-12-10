@@ -272,7 +272,7 @@ confirm_uninstall() {
     echo ""
     echo -e "${RED}警告: 此操作将删除 Agent 及其部署的所有核心服务!${NC}"
     echo ""
-    read -p "确定要继续吗? [y/N]: " -n 1 -r
+    read -p "确定要继续吗? [y/N]: " -n 1 -r < /dev/tty
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "已取消卸载"
@@ -306,7 +306,7 @@ show_menu() {
 interactive_menu() {
     while true; do
         show_menu
-        read -p "请选择操作 [0-4]: " choice
+        read -p "请选择操作 [0-4]: " choice < /dev/tty
         echo ""
         
         case "$choice" in
@@ -317,33 +317,33 @@ interactive_menu() {
                 reload_systemd
                 echo ""
                 success "全部卸载完成!"
-                read -p "按回车键继续..."
+                read -p "按回车键继续..." < /dev/tty
                 ;;
             2)
                 echo -e "${YELLOW}将卸载核心服务 (sing-box, mihomo)${NC}"
-                read -p "确定吗? [y/N]: " -n 1 -r
+                read -p "确定吗? [y/N]: " -n 1 -r < /dev/tty
                 echo
                 if [[ $REPLY =~ ^[Yy]$ ]]; then
                     uninstall_cores
                     reload_systemd
                     success "核心服务卸载完成!"
                 fi
-                read -p "按回车键继续..."
+                read -p "按回车键继续..." < /dev/tty
                 ;;
             3)
                 echo -e "${YELLOW}将卸载 Agent (保留核心服务)${NC}"
-                read -p "确定吗? [y/N]: " -n 1 -r
+                read -p "确定吗? [y/N]: " -n 1 -r < /dev/tty
                 echo
                 if [[ $REPLY =~ ^[Yy]$ ]]; then
                     uninstall_agent
                     reload_systemd
                     success "Agent 卸载完成!"
                 fi
-                read -p "按回车键继续..."
+                read -p "按回车键继续..." < /dev/tty
                 ;;
             4)
                 show_uninstall_preview
-                read -p "按回车键继续..."
+                read -p "按回车键继续..." < /dev/tty
                 ;;
             0)
                 echo -e "${GREEN}再见!${NC}"
