@@ -28,7 +28,6 @@ const embedDir = "cmd/agent/embed/configs"
 
 // 缓存的版本信息
 var (
-	mihomoVersion  string
 	singboxVersion string
 )
 
@@ -122,16 +121,10 @@ func downloadCores(targetOS, targetArch string, verbose bool) error {
 	if err := fetchLatestVersions(verbose); err != nil {
 		return fmt.Errorf("获取版本信息失败: %v", err)
 	}
-	fmt.Printf("  mihomo: %s\n", mihomoVersion)
 	fmt.Printf("  sing-box: %s\n", singboxVersion)
 
 	// 清理旧文件
 	cleanOldCores()
-
-	// 下载 mihomo
-	if err := downloadMihomo(targetOS, targetArch, verbose); err != nil {
-		return fmt.Errorf("下载 mihomo 失败: %v", err)
-	}
 
 	// 下载 sing-box
 	if err := downloadSingbox(targetOS, targetArch, verbose); err != nil {
@@ -144,17 +137,6 @@ func downloadCores(targetOS, targetArch string, verbose bool) error {
 // fetchLatestVersions 从 GitHub API 获取最新版本
 func fetchLatestVersions(verbose bool) error {
 	client := &http.Client{Timeout: 30 * time.Second}
-
-	// 获取 mihomo 最新版本
-	mihomoURL := "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
-	if verbose {
-		fmt.Printf("  请求: %s\n", mihomoURL)
-	}
-	mihomoVer, err := getLatestVersion(client, mihomoURL)
-	if err != nil {
-		return fmt.Errorf("获取 mihomo 版本失败: %v", err)
-	}
-	mihomoVersion = mihomoVer
 
 	// 获取 sing-box 最新版本
 	singboxURL := "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
@@ -201,90 +183,12 @@ func getLatestVersion(client *http.Client, apiURL string) (string, error) {
 func cleanOldCores() {
 	fmt.Println("清理旧的核心文件...")
 	files := []string{
-		filepath.Join(embedDir, "mihomo", "mihomo"),
-		filepath.Join(embedDir, "mihomo", "mihomo.exe"),
 		filepath.Join(embedDir, "sing-box", "sing-box"),
 		filepath.Join(embedDir, "sing-box", "sing-box.exe"),
 	}
 	for _, f := range files {
 		os.Remove(f)
 	}
-}
-
-func downloadMihomo(targetOS, targetArch string, verbose bool) error {
-	fmt.Printf("\n下载 mihomo %s (%s/%s)...\n", mihomoVersion, targetOS, targetArch)
-
-	binaryName := "mihomo"
-	if targetOS == "windows" {
-		binaryName = "mihomo.exe"
-	}
-
-	// 转换架构名称为 mihomo 使用的格式
-	// mihomo 支持: amd64, 386, arm64, armv5, armv6, armv7
-	archName := targetArch
-	switch targetArch {
-	case "arm":
-		archName = "armv7" // 默认使用 armv7
-	case "armv5":
-		archName = "armv5"
-	case "armv6":
-		archName = "armv6"
-	case "armv7":
-		archName = "armv7"
-	case "386":
-		archName = "386"
-	case "mipsle":
-		archName = "mipsle-softfloat"
-	case "mips":
-		archName = "mips-softfloat"
-	case "mips64le":
-		archName = "mips64le"
-	case "mips64":
-		archName = "mips64"
-	}
-
-	var filename string
-	var extractFunc func(string, string, string) error
-
-	switch targetOS {
-	case "linux":
-		filename = fmt.Sprintf("mihomo-%s-%s-%s.gz", targetOS, archName, mihomoVersion)
-		extractFunc = extractGzip
-	case "windows":
-		filename = fmt.Sprintf("mihomo-%s-%s-%s.zip", targetOS, archName, mihomoVersion)
-		extractFunc = extractZipMihomo
-	case "darwin":
-		filename = fmt.Sprintf("mihomo-%s-%s-%s.gz", targetOS, archName, mihomoVersion)
-		extractFunc = extractGzip
-	case "freebsd":
-		filename = fmt.Sprintf("mihomo-%s-%s-%s.gz", targetOS, archName, mihomoVersion)
-		extractFunc = extractGzip
-	default:
-		fmt.Printf("  跳过 mihomo: 不支持的平台 %s/%s\n", targetOS, targetArch)
-		return nil
-	}
-
-	baseURL := fmt.Sprintf("https://github.com/MetaCubeX/mihomo/releases/download/%s/%s", mihomoVersion, filename)
-	targetPath := filepath.Join(embedDir, "mihomo", binaryName)
-
-	// 下载文件
-	tmpFile, err := downloadWithProxy(baseURL, verbose)
-	if err != nil {
-		fmt.Printf("  警告: mihomo 下载失败 (%v)，可能不支持此架构\n", err)
-		return nil // 不阻塞构建
-	}
-	defer os.Remove(tmpFile)
-
-	// 解压
-	if err := extractFunc(tmpFile, targetPath, binaryName); err != nil {
-		return err
-	}
-
-	// 设置可执行权限
-	os.Chmod(targetPath, 0755)
-
-	fmt.Printf("mihomo 下载完成: %s\n", targetPath)
-	return nil
 }
 
 func downloadSingbox(targetOS, targetArch string, verbose bool) error {
@@ -416,32 +320,6 @@ func downloadFile(client *http.Client, url string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
-func extractGzip(srcFile, destFile, _ string) error {
-	f, err := os.Open(srcFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gr.Close()
-
-	// 确保目录存在
-	os.MkdirAll(filepath.Dir(destFile), 0755)
-
-	out, err := os.Create(destFile)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, gr)
-	return err
-}
-
 func extractTarGz(srcFile, destFile, binaryName string) error {
 	f, err := os.Open(srcFile)
 	if err != nil {
@@ -481,24 +359,6 @@ func extractTarGz(srcFile, destFile, binaryName string) error {
 	}
 
 	return fmt.Errorf("未找到 %s", binaryName)
-}
-
-func extractZipMihomo(srcFile, destFile, binaryName string) error {
-	r, err := zip.OpenReader(srcFile)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	for _, f := range r.File {
-		// mihomo zip 中的文件名可能包含版本号
-		if strings.HasPrefix(filepath.Base(f.Name), "mihomo") &&
-			(strings.HasSuffix(f.Name, ".exe") || !strings.Contains(f.Name, ".")) {
-			return extractZipFile(f, destFile)
-		}
-	}
-
-	return fmt.Errorf("未找到 mihomo 二进制文件")
 }
 
 func extractZipSingbox(srcFile, destFile, binaryName string) error {
@@ -554,9 +414,9 @@ func buildSboard() error {
 func buildAgent(targetOS, targetArch string) error {
 	fmt.Printf("\n=== 编译 Agent (%s/%s) ===\n", targetOS, targetArch)
 
-	outputName := "agent"
+	outputName := "sboard-agent"
 	if targetOS == "windows" {
-		outputName = "agent.exe"
+		outputName = "sboard-agent.exe"
 	}
 
 	cmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", outputName, "./cmd/agent")
@@ -572,14 +432,7 @@ func buildAgent(targetOS, targetArch string) error {
 		return err
 	}
 
-	// 复制为 sboard-agent
-	sboardAgentName := "sboard-agent"
-	if targetOS == "windows" {
-		sboardAgentName = "sboard-agent.exe"
-	}
-	copyFile(outputName, sboardAgentName)
-
-	fmt.Printf("编译完成: %s, %s\n", outputName, sboardAgentName)
+	fmt.Printf("编译完成: %s\n", outputName)
 	return nil
 }
 
@@ -590,14 +443,13 @@ func showResult(targetOS, targetArch string) {
 	fmt.Printf("目标平台: %s/%s\n", targetOS, targetArch)
 	fmt.Println()
 	fmt.Println("嵌入的核心版本:")
-	fmt.Printf("  - mihomo: %s\n", mihomoVersion)
 	fmt.Printf("  - sing-box: v%s\n", singboxVersion)
 	fmt.Println()
 	fmt.Println("生成文件:")
 
-	files := []string{"sboard", "agent", "sboard-agent"}
+	files := []string{"sboard", "sboard-agent"}
 	if targetOS == "windows" {
-		files = []string{"sboard.exe", "agent.exe", "sboard-agent.exe"}
+		files = []string{"sboard.exe", "sboard-agent.exe"}
 	}
 
 	for _, f := range files {
@@ -605,28 +457,4 @@ func showResult(targetOS, targetArch string) {
 			fmt.Printf("  %s (%d KB)\n", f, info.Size()/1024)
 		}
 	}
-}
-
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	os.MkdirAll(filepath.Dir(dst), 0755)
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	if err != nil {
-		return err
-	}
-
-	// 复制权限
-	info, _ := srcFile.Stat()
-	return os.Chmod(dst, info.Mode())
 }

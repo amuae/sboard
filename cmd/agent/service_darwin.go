@@ -27,15 +27,12 @@ func (s *ServiceManager) GetDefaultInstallPath(coreType string) string {
 
 // GetBinaryName 获取二进制文件名
 func (s *ServiceManager) GetBinaryName(coreType string) string {
-	return coreType // darwin: sing-box, mihomo
+	return coreType // darwin: sing-box
 }
 
 // GetConfigFileName 获取配置文件名
 func (s *ServiceManager) GetConfigFileName(coreType string) string {
-	if coreType == "sing-box" {
-		return "config.json"
-	}
-	return "config.yaml"
+	return "config.json"
 }
 
 // InstallService 安装 macOS LaunchDaemon 服务
@@ -151,10 +148,14 @@ func (s *ServiceManager) generateLaunchDaemonPlist(serviceName, installPath, cor
 		<string>%s</string>
 		<string>-D</string>
 		<string>%s</string>`, binaryPath, configPath, installPath)
-	case "mihomo":
+	default:
+		configPath := filepath.Join(installPath, "config.json")
 		programArgs = fmt.Sprintf(`		<string>%s</string>
-		<string>-d</string>
-		<string>%s</string>`, binaryPath, installPath)
+		<string>run</string>
+		<string>-c</string>
+		<string>%s</string>
+		<string>-D</string>
+		<string>%s</string>`, binaryPath, configPath, installPath)
 	}
 
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>

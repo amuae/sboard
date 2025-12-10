@@ -211,7 +211,6 @@ export interface Server {
   node_domain: string  // 节点域名（用于订阅 DNS 解析）
   port: number
   category: string
-  core_type: string
   node_1: string
   node_2: string
   node_3: string

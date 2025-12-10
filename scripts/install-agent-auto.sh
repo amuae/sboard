@@ -13,7 +13,6 @@
 # 参数:
 #   --token <token>   Agent 认证 Token (必填)
 #   --panel <url>     面板地址 (必填)
-#   --core <type>     核心类型: sing-box 或 mihomo (默认: sing-box)
 #   --uninstall       卸载 Agent
 #   -h, --help        显示帮助
 
@@ -45,7 +44,6 @@ show_help() {
     echo "选项:"
     echo "  --token <token>   Agent 认证 Token (必填)"
     echo "  --panel <url>     面板地址 (必填)"
-    echo "  --core <type>     核心类型: sing-box 或 mihomo (默认: sing-box)"
     echo "  --uninstall       卸载 Agent"
     echo "  -h, --help        显示帮助"
     echo ""

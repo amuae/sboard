@@ -37,14 +37,13 @@ type Message struct {
 
 // RegisterData 注册数据
 type RegisterData struct {
-	Token    string `json:"token"`     // 认证 Token
-	AgentID  string `json:"agent_id"`  // Agent 唯一标识
-	Version  string `json:"version"`   // Agent 版本
-	Hostname string `json:"hostname"`  // 主机名
-	LocalIP  string `json:"local_ip"`  // 本机 IP (从网卡获取)
-	OS       string `json:"os"`        // 操作系统
-	Arch     string `json:"arch"`      // CPU 架构
-	CoreType string `json:"core_type"` // 核心类型: sing-box/mihomo
+	Token    string `json:"token"`    // 认证 Token
+	AgentID  string `json:"agent_id"` // Agent 唯一标识
+	Version  string `json:"version"`  // Agent 版本
+	Hostname string `json:"hostname"` // 主机名
+	LocalIP  string `json:"local_ip"` // 本机 IP (从网卡获取)
+	OS       string `json:"os"`       // 操作系统
+	Arch     string `json:"arch"`     // CPU 架构
 }
 
 // HeartbeatData 心跳数据
@@ -68,7 +67,6 @@ type StatusData struct {
 	LocalIP       string    `json:"local_ip"`
 	OS            string    `json:"os"`
 	Arch          string    `json:"arch"`
-	CoreType      string    `json:"core_type"`
 	CoreVersion   string    `json:"core_version"`
 	CoreRunning   bool      `json:"core_running"`
 	ConfigVersion string    `json:"config_version"` // 配置版本(MD5)
@@ -111,19 +109,19 @@ type DeployDirData struct {
 
 // SyncConfigData 同步配置数据
 type SyncConfigData struct {
-	ConfigType string `json:"config_type"` // sing-box / mihomo
+	ConfigType string `json:"config_type"` // sing-box
 	Content    string `json:"content"`     // 配置内容
 	Restart    bool   `json:"restart"`     // 是否重启服务
 }
 
 // RestartData 重启服务数据
 type RestartData struct {
-	Service string `json:"service"` // 服务名: sing-box / mihomo
+	Service string `json:"service"` // 服务名: sing-box
 }
 
 // DeployCoreData 部署核心数据
 type DeployCoreData struct {
-	CoreType   string `json:"core_type"`   // sing-box 或 mihomo
+	CoreType   string `json:"core_type"`   // sing-box
 	TargetPath string `json:"target_path"` // 目标安装路径，如 /root/sing-box
 	Config     string `json:"config"`      // 配置文件内容
 }

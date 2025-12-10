@@ -181,7 +181,7 @@ jobs:
           sudo tar -C /usr/local -xzf go${{ env.GO_VERSION }}.linux-amd64.tar.gz
           echo "/usr/local/go/bin" >> $GITHUB_PATH
 
-      - name: Download cores (mihomo & sing-box)
+      - name: Download cores (sing-box)
         run: |
           # 确定架构名称 (arm + goarm -> armv6/armv7)
           ARCH="${{ matrix.goarch }}"

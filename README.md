@@ -1,12 +1,12 @@
 # SBoard
 
-轻量级代理服务管理面板，支持 sing-box 和 mihomo 核心。
+轻量级代理服务管理面板，基于 sing-box 核心。
 
 ## 特性
 
 - 🚀 单二进制部署，无需依赖
 - 🌐 多协议支持 (VMess, VLESS, Trojan, Anytls, Shadowsocks, Hysteria2)
-- 📋 订阅链接生成 (Mihomo, sing-box, V2Ray)
+- 📋 订阅链接生成 (支持 Mihomo/Clash, sing-box, V2Ray 格式)
 - 📡 Agent 远程部署与管理
 - 🖥️ 服务器实时监控
 - 🔐 GitHub OAuth 登录 (可选)

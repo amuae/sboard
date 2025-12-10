@@ -99,15 +99,12 @@ func (s *ServiceManager) GetDefaultInstallPath(coreType string) string {
 
 // GetBinaryName 获取二进制文件名
 func (s *ServiceManager) GetBinaryName(coreType string) string {
-	return coreType // linux: sing-box, mihomo
+	return coreType // linux: sing-box
 }
 
 // GetConfigFileName 获取配置文件名
 func (s *ServiceManager) GetConfigFileName(coreType string) string {
-	if coreType == "sing-box" {
-		return "config.json"
-	}
-	return "config.yaml"
+	return "config.json"
 }
 
 // InstallService 安装服务
@@ -323,8 +320,8 @@ func (s *ServiceManager) generateSystemdServiceFile(serviceName, installPath, co
 	switch coreType {
 	case "sing-box":
 		execStart = fmt.Sprintf("%s/sing-box run -c %s/config.json -D %s", installPath, installPath, installPath)
-	case "mihomo":
-		execStart = fmt.Sprintf("%s/mihomo -d %s", installPath, installPath)
+	default:
+		execStart = fmt.Sprintf("%s/sing-box run -c %s/config.json -D %s", installPath, installPath, installPath)
 	}
 
 	return fmt.Sprintf(`[Unit]
@@ -353,8 +350,8 @@ func (s *ServiceManager) generateOpenRCServiceFile(serviceName, installPath, cor
 	switch coreType {
 	case "sing-box":
 		commandArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
-	case "mihomo":
-		commandArgs = fmt.Sprintf("-d %s", installPath)
+	default:
+		commandArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
 	}
 
 	return fmt.Sprintf(`#!/sbin/openrc-run
@@ -389,8 +386,8 @@ func (s *ServiceManager) generateSysVinitServiceFile(serviceName, installPath, c
 	switch coreType {
 	case "sing-box":
 		daemonArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
-	case "mihomo":
-		daemonArgs = fmt.Sprintf("-d %s", installPath)
+	default:
+		daemonArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
 	}
 
 	return fmt.Sprintf(`#!/bin/bash
@@ -477,8 +474,8 @@ func (s *ServiceManager) generateProcdServiceFile(serviceName, installPath, core
 	switch coreType {
 	case "sing-box":
 		commandArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
-	case "mihomo":
-		commandArgs = fmt.Sprintf("-d %s", installPath)
+	default:
+		commandArgs = fmt.Sprintf("run -c %s/config.json -D %s", installPath, installPath)
 	}
 
 	return fmt.Sprintf(`#!/bin/sh /etc/rc.common

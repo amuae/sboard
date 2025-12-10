@@ -1,5 +1,5 @@
 # SBoard Agent 卸载脚本 (Windows)
-# 卸载 Agent 及其部署的所有核心服务 (sing-box, mihomo)
+# 卸载 Agent 及其部署的核心服务 (sing-box)
 #
 # 用法: 
 #   .\uninstall-agent.ps1           # 交互式菜单
@@ -17,7 +17,7 @@ param(
 
 # 配置
 $AgentService = "sboard-agent"
-$CoreServices = @("sing-box", "mihomo")
+$CoreServices = @("sing-box")
 $AgentInstallDir = "C:\sboard-agent"
 $CoreInstallDirs = @(
     "C:\sboard\sing-box",
@@ -203,7 +203,7 @@ function Start-InteractiveMenu {
                 Read-Host "按回车键继续..."
             }
             "2" {
-                Write-Warn "将卸载核心服务 (sing-box, mihomo)"
+                Write-Warn "将卸载核心服务 (sing-box)"
                 $confirm = Read-Host "确定吗? [y/N]"
                 if ($confirm -eq 'y' -or $confirm -eq 'Y') {
                     Uninstall-Cores

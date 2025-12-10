@@ -20,8 +20,6 @@ param(
     [string]$PanelUrl,
     
     [Parameter(Mandatory=$false)]
-    [ValidateSet("sing-box", "mihomo")]
-    [string]$CoreType = "sing-box",
     
     [Parameter(Mandatory=$false)]
     [switch]$Uninstall,
@@ -73,7 +71,6 @@ function Show-Help {
     Write-Host "示例:"
     Write-Host '  $env:TOKEN="abc123"; $env:PANEL="https://panel.example.com"; irm <url> | iex'
     Write-Host "  .\install-agent.ps1 -Token abc123 -PanelUrl https://panel.example.com"
-    Write-Host "  .\install-agent.ps1 -Token abc123 -PanelUrl https://panel.example.com -CoreType mihomo"
     Write-Host "  .\install-agent.ps1 -Uninstall"
     Write-Host ""
     Write-Host "支持的架构: amd64, arm64, 386"
@@ -182,27 +179,15 @@ function Generate-Config {
     $agentId = $env:COMPUTERNAME
     
     # 设置核心路径
-    switch ($CoreType) {
-        "sing-box" {
-            $corePath = "C:\sboard\sing-box\sing-box.exe"
-            $configDir = "C:\sboard\sing-box"
-        }
-        "mihomo" {
-            $corePath = "C:\sboard\mihomo\mihomo.exe"
-            $configDir = "C:\sboard\mihomo"
-        }
-        default {
-            $corePath = "C:\sboard\$CoreType\$CoreType.exe"
-            $configDir = "C:\sboard\$CoreType"
-        }
-    }
+    # 固定使用 sing-box
+    $corePath = "C:\sboard\sing-box\sing-box.exe"
+    $configDir = "C:\sboard\sing-box"
     
     # 生成配置 JSON
     $config = @{
         panel_url = $PanelUrl
         token = $Token
-        agent_id = $agentId
-        core_type = $CoreType
+        agent_id = $AgentId
         core_path = $corePath
         config_dir = $configDir
     } | ConvertTo-Json -Depth 10
@@ -313,11 +298,7 @@ function Main {
         $PanelUrl = $env:PANEL
         Write-Info "从环境变量读取 Panel 地址"
     }
-    if (-not $CoreType -or $CoreType -eq "sing-box") {
-        if ($env:CORE_TYPE) {
-            $CoreType = $env:CORE_TYPE
-        }
-    }
+    # 环境变量检查已移除，固定使用 sing-box
     
     # 交互式输入 (如果仍然缺少参数)
     if (-not $Token) {

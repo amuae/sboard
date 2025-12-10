@@ -175,9 +175,6 @@ type Server struct {
 	Node2 string `gorm:"size:100" json:"node_2"`
 	Node3 string `gorm:"size:100" json:"node_3"`
 
-	// 核心类型
-	CoreType string `gorm:"size:20;not null;default:sing-box" json:"core_type"` // sing-box/mihomo
-
 	// DNS 解析
 	DnsResolve string `gorm:"size:10;default:none" json:"dns_resolve"` // none/ipv4/ipv6
 

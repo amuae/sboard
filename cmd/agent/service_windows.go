@@ -28,15 +28,12 @@ func (s *ServiceManager) GetDefaultInstallPath(coreType string) string {
 
 // GetBinaryName 获取二进制文件名
 func (s *ServiceManager) GetBinaryName(coreType string) string {
-	return coreType + ".exe" // windows: sing-box.exe, mihomo.exe
+	return coreType + ".exe" // windows: sing-box.exe
 }
 
 // GetConfigFileName 获取配置文件名
 func (s *ServiceManager) GetConfigFileName(coreType string) string {
-	if coreType == "sing-box" {
-		return "config.json"
-	}
-	return "config.yaml"
+	return "config.json"
 }
 
 // InstallService 安装 Windows 服务
@@ -48,8 +45,9 @@ func (s *ServiceManager) InstallService(serviceName, installPath, coreType strin
 	case "sing-box":
 		configPath := filepath.Join(installPath, "config.json")
 		binPath = fmt.Sprintf(`"%s" run -c "%s" -D "%s"`, binaryPath, configPath, installPath)
-	case "mihomo":
-		binPath = fmt.Sprintf(`"%s" -d "%s"`, binaryPath, installPath)
+	default:
+		configPath := filepath.Join(installPath, "config.json")
+		binPath = fmt.Sprintf(`"%s" run -c "%s" -D "%s"`, binaryPath, configPath, installPath)
 	}
 
 	// 使用 sc.exe 创建服务

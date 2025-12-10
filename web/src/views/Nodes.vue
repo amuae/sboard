@@ -310,10 +310,6 @@
           <div class="modal-body">
             <!-- 配置类型选择 -->
             <div class="btn-group w-100 mb-3" role="group">
-              <input type="radio" class="btn-check" name="configType" id="configMihomo" value="mihomo" v-model="configType">
-              <label class="btn btn-outline-primary" for="configMihomo">
-                <i class="bi bi-box"></i> Mihomo
-              </label>
               <input type="radio" class="btn-check" name="configType" id="configSingbox" value="sing-box" v-model="configType">
               <label class="btn btn-outline-success" for="configSingbox">
                 <i class="bi bi-box-seam"></i> Sing-Box
@@ -404,7 +400,7 @@ const deleteTarget = ref<Node | null>(null)
 const deleting = ref(false)
 
 // 配置查看
-const configType = ref('mihomo')
+const configType = ref('sing-box')
 const configContent = ref('')
 const configLoading = ref(false)
 

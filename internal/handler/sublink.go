@@ -56,6 +56,17 @@ func resolveDomain(domain string, dnsResolve string) string {
 	return domain
 }
 
+// getDnsResolveStrategy 获取最终的 DNS 解析策略
+// 优先使用用户的策略，如果用户设置为 "default"，则使用服务器的策略
+func getDnsResolveStrategy(user *database.ProxyUser, server *database.Server) string {
+	// 用户策略不为空且不为 "default"，使用用户策略
+	if user.DnsResolve != "" && user.DnsResolve != "default" {
+		return user.DnsResolve
+	}
+	// 否则使用服务器策略
+	return server.DnsResolve
+}
+
 // ServerWithNodes 服务器及其节点
 type ServerWithNodes struct {
 	Server database.Server
@@ -600,8 +611,9 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		port = nc.ForwardPort
 	}
 
-	// 根据服务器 DNS 解析策略解析域名
-	host = resolveDomain(host, server.DnsResolve)
+	// 获取最终的 DNS 解析策略：优先使用用户策略，如果是 default 则降级到服务器策略
+	dnsStrategy := getDnsResolveStrategy(user, server)
+	host = resolveDomain(host, dnsStrategy)
 
 	// 辅助函数：添加字段
 	var proxy MihomoProxy
@@ -870,8 +882,9 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 		port = nc.ForwardPort
 	}
 
-	// 根据服务器 DNS 解析策略解析域名
-	host = resolveDomain(host, server.DnsResolve)
+	// 获取最终的 DNS 解析策略：优先使用用户策略，如果是 default 则降级到服务器策略
+	dnsStrategy := getDnsResolveStrategy(user, server)
+	host = resolveDomain(host, dnsStrategy)
 
 	outbound := SingBoxOutbound{
 		"tag":         tag,
@@ -1062,8 +1075,9 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 		port = nc.ForwardPort
 	}
 
-	// 根据服务器 DNS 解析策略解析域名
-	host = resolveDomain(host, server.DnsResolve)
+	// 获取最终的 DNS 解析策略：优先使用用户策略，如果是 default 则降级到服务器策略
+	dnsStrategy := getDnsResolveStrategy(user, server)
+	host = resolveDomain(host, dnsStrategy)
 
 	switch node.Protocol {
 	case "vmess":

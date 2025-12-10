@@ -111,10 +111,6 @@
               <span class="text-muted">分类:</span>
               <span :class="getCategoryClass(server.category)">{{ getCategoryName(server.category) }}</span>
             </div>
-            <div class="d-flex justify-content-between">
-              <span class="text-muted">核心:</span>
-              <span>{{ server.core_type }}</span>
-            </div>
           </div>
           
           <div class="card-actions">
@@ -163,16 +159,21 @@
                       <span class="ms-2 font-monospace">{{ formData.agent_id }}</span>
                     </div>
                   </div>
-                  <div class="mt-2 d-flex align-items-center gap-2" v-if="formData.agent_token">
-                    <span class="text-muted small">部署命令:</span>
-                    <code class="small text-break flex-grow-1" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ agentDeployCommand }}</code>
-                    <button type="button" class="btn btn-sm btn-outline-primary" @click="copyDeployCommand" title="复制部署命令">
-                      <i class="bi bi-clipboard"></i> 复制
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-warning" @click="regenerateToken" :disabled="regeneratingToken" title="重新生成 Token">
-                      <span v-if="regeneratingToken" class="spinner-border spinner-border-sm"></span>
-                      <i v-else class="bi bi-arrow-clockwise"></i>
-                    </button>
+                  <div class="mt-2" v-if="formData.agent_token">
+                    <div class="d-flex align-items-center mb-1">
+                      <span class="text-muted small">部署命令:</span>
+                      <span class="ms-2 text-muted small">(点击复制)</span>
+                    </div>
+                    <div 
+                      class="deploy-command-box"
+                      @click="copyDeployCommand"
+                      role="button"
+                      tabindex="0"
+                      title="点击复制部署命令"
+                    >
+                      <code class="deploy-command-text">{{ agentDeployCommand }}</code>
+                      <i class="bi bi-clipboard copy-icon"></i>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -210,15 +211,6 @@
                       <option value="direct">线路</option>
                       <option value="relay">落地</option>
                       <option value="home">自用</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="col-md-4">
-                  <div class="mb-3">
-                    <label class="form-label">核心类型 <span class="text-danger">*</span></label>
-                    <select class="form-select" v-model="formData.core_type">
-                      <option value="sing-box">sing-box</option>
-                      <option value="mihomo">mihomo</option>
                     </select>
                   </div>
                 </div>
@@ -658,9 +650,6 @@ const deploying = ref(false)
 const deployOutput = ref('')
 const updatingAgents = ref(false)
 
-// Agent 相关
-const regeneratingToken = ref(false)
-
 // 拖拽排序相关
 const isDragging = ref(false)
 const dragIndex = ref<number | null>(null)
@@ -729,8 +718,7 @@ const GITHUB_SCRIPT_URL = 'https://ghfast.top/https://raw.githubusercontent.com/
 const agentDeployCommand = computed(() => {
   if (!formData.value.agent_token) return ''
   const panelUrl = window.location.origin
-  const coreType = formData.value.core_type || 'sing-box'
-  return `curl -fsSL ${GITHUB_SCRIPT_URL} | bash -s -- --token ${formData.value.agent_token} --panel ${panelUrl} --core ${coreType}`
+  return `curl -fsSL ${GITHUB_SCRIPT_URL} | bash -s -- --token ${formData.value.agent_token} --panel ${panelUrl}`
 })
 
 // 节点配置
@@ -961,7 +949,6 @@ function getDefaultFormData() {
     node_domain: '',
     dns_resolve: 'none',
     category: 'direct',
-    core_type: 'sing-box',
     node_1: '',
     node_2: '',
     node_3: '',
@@ -1131,7 +1118,6 @@ async function openEditModal(server: Server) {
     node_domain: server.node_domain || '',
     dns_resolve: server.dns_resolve || 'none',
     category: server.category,
-    core_type: server.core_type,
     node_1: server.node_1 || '',
     node_2: server.node_2 || '',
     node_3: server.node_3 || '',
@@ -1166,7 +1152,6 @@ async function saveServer() {
       node_domain: formData.value.node_domain,
       dns_resolve: formData.value.dns_resolve,
       category: formData.value.category,
-      core_type: formData.value.core_type,
       node_1: formData.value.node_1,
       node_2: formData.value.node_2,
       node_3: formData.value.node_3,
@@ -1410,22 +1395,6 @@ async function copyDeployCommand() {
     console.error('Copy failed:', error)
   }
 }
-
-async function regenerateToken() {
-  if (!formData.value.id) return
-  
-  regeneratingToken.value = true
-  try {
-    const res = await regenerateAgentToken(formData.value.id)
-    formData.value.agent_token = res.data.data.agent_token
-    showToast('success', '成功', 'Agent Token 已重新生成')
-    await loadData() // 刷新列表
-  } catch (error: any) {
-    showToast('error', '错误', error.response?.data?.error || '重新生成失败')
-  } finally {
-    regeneratingToken.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -1609,5 +1578,53 @@ async function regenerateToken() {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 部署命令框样式 */
+.deploy-command-box {
+  position: relative;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 2.5rem 0.75rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.deploy-command-box:hover {
+  background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+  border-color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+}
+
+.deploy-command-box:active {
+  transform: scale(0.98);
+}
+
+.deploy-command-text {
+  display: block;
+  font-size: 0.8rem;
+  color: #1e293b;
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  line-height: 1.4;
+  padding-right: 1rem;
+}
+
+.copy-icon {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.deploy-command-box:hover .copy-icon {
+  color: #3b82f6;
+  transform: translateY(-50%) scale(1.1);
 }
 </style>

@@ -110,7 +110,6 @@ func (s *Server) setupRoutes() {
 				servers.DELETE("/:id/node-configs/:nodeId", s.handleDeleteServerNodeConfig)
 				// 服务器配置文件
 				servers.GET("/:id/config", s.handleGetServerConfig)
-				servers.GET("/:id/deploy-folder", s.handleGetDeployFolder)
 				// Agent 相关
 				servers.GET("/:id/agent/status", s.handleGetAgentStatus)
 				servers.POST("/:id/agent/command", s.handleSendAgentCommand)

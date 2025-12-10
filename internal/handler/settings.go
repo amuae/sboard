@@ -156,11 +156,7 @@ func (s *Server) handlePreviewConfig(c *gin.Context) {
 	var content string
 	var err error
 
-	if configType == "mihomo" {
-		content, err = previewMihomoConfig()
-	} else {
-		content, err = previewSingBoxConfig()
-	}
+	content, err = previewSingBoxConfig()
 
 	if err != nil {
 		errorJSON(c, http.StatusInternalServerError, "生成预览失败: "+err.Error())
@@ -176,9 +172,4 @@ func (s *Server) handlePreviewConfig(c *gin.Context) {
 // previewSingBoxConfig 预览 Sing-Box 配置（实时生成）
 func previewSingBoxConfig() (string, error) {
 	return generateGlobalSingBoxConfig()
-}
-
-// previewMihomoConfig 预览 Mihomo 配置（实时生成）
-func previewMihomoConfig() (string, error) {
-	return generateGlobalMihomoConfig()
 }

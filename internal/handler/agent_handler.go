@@ -387,14 +387,14 @@ func (h *AgentHub) BroadcastConfigUpdate() {
 			}
 
 			// 生成配置
-			config, err := GenerateServerConfig(&server, server.CoreType)
+			config, err := GenerateServerConfig(&server, "sing-box")
 			if err != nil {
 				return
 			}
 
 			// 构造消息
 			data := &agent.SyncConfigData{
-				ConfigType: server.CoreType,
+				ConfigType: "sing-box",
 				Content:    config,
 				Restart:    true,
 			}
@@ -566,7 +566,7 @@ func (s *Server) handleSyncConfigToAgent(c *gin.Context) {
 	// 生成配置
 	configType := req.ConfigType
 	if configType == "" {
-		configType = server.CoreType
+		configType = "sing-box"
 	}
 
 	config, err := GenerateServerConfig(&server, configType)
@@ -615,7 +615,6 @@ func (s *Server) handleDeployCoreToAgent(c *gin.Context) {
 	}
 
 	var req struct {
-		CoreType   string `json:"core_type"`   // sing-box 或 mihomo
 		TargetPath string `json:"target_path"` // 目标安装路径
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -630,20 +629,14 @@ func (s *Server) handleDeployCoreToAgent(c *gin.Context) {
 		return
 	}
 
-	// 核心类型，默认使用服务器配置的核心类型
-	coreType := req.CoreType
-	if coreType == "" {
-		coreType = server.CoreType
-	}
-
-	// 目标路径，默认 /root/{core_type}
+	// 目标路径，默认 /root/sing-box
 	targetPath := req.TargetPath
 	if targetPath == "" {
-		targetPath = "/root/" + coreType
+		targetPath = "/root/sing-box"
 	}
 
 	// 生成配置
-	config, err := GenerateServerConfig(&server, coreType)
+	config, err := GenerateServerConfig(&server, "sing-box")
 	if err != nil {
 		errorJSON(c, http.StatusInternalServerError, "生成配置失败: "+err.Error())
 		return
@@ -651,7 +644,7 @@ func (s *Server) handleDeployCoreToAgent(c *gin.Context) {
 
 	// 发送部署命令
 	data := &agent.DeployCoreData{
-		CoreType:   coreType,
+		CoreType:   "sing-box",
 		TargetPath: targetPath,
 		Config:     config,
 	}
@@ -719,9 +712,8 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 
 	// 收集存活的 Agent
 	type aliveServer struct {
-		Server   database.Server
-		Conn     *websocket.Conn
-		CoreType string
+		Server database.Server
+		Conn   *websocket.Conn
 	}
 	aliveServers := []aliveServer{}
 
@@ -729,9 +721,8 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 	for _, server := range servers {
 		if conn, ok := agentHub.serverMap[server.ID]; ok && conn != nil && conn.IsAlive() {
 			aliveServers = append(aliveServers, aliveServer{
-				Server:   server,
-				Conn:     conn.Conn,
-				CoreType: server.CoreType,
+				Server: server,
+				Conn:   conn.Conn,
 			})
 		}
 	}
@@ -747,15 +738,15 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 		for _, srv := range aliveServers {
 			go func(srv aliveServer) {
 				// 生成配置
-				config, err := GenerateServerConfig(&srv.Server, srv.CoreType)
+				config, err := GenerateServerConfig(&srv.Server, "sing-box")
 				if err != nil {
 					return
 				}
 
 				// 发送部署核心指令
 				deployCoreData := &agent.DeployCoreData{
-					CoreType:   srv.CoreType,
-					TargetPath: "/root/" + srv.CoreType,
+					CoreType:   "sing-box",
+					TargetPath: "/root/sing-box",
 					Config:     config,
 				}
 				rawData, _ := json.Marshal(deployCoreData)

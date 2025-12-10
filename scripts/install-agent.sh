@@ -9,8 +9,8 @@
 #   - procd (OpenWrt)
 #   - init.d/SysVinit (老版本系统)
 #
-# 用法: curl -fsSL https://your-panel.com/install-agent.sh | bash -s -- --token <token> [--core <core_type>]
-# 或者: curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-agent.sh | bash -s -- --token <token> --panel <panel_url> [--core <core_type>]
+# 用法: curl -fsSL https://your-panel.com/install-agent.sh | bash -s -- --token <token>
+# 或者: curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-agent.sh | bash -s -- --token <token> --panel <panel_url>
 
 set -e
 
@@ -43,7 +43,6 @@ INIT_SYSTEM=""
 # 参数
 PANEL_URL=""
 TOKEN=""
-CORE_TYPE="sing-box"
 
 # 函数: 打印信息
 info() {
@@ -72,13 +71,11 @@ show_help() {
     echo "选项:"
     echo "  --token <token>     Agent 认证 Token (必填)"
     echo "  --panel <url>       面板地址 (必填)"
-    echo "  --core <type>       核心类型: sing-box 或 mihomo (默认: sing-box)"
     echo "  --uninstall         卸载 Agent"
     echo "  -h, --help          显示帮助"
     echo ""
     echo "示例:"
     echo "  $0 --token abc123 --panel https://panel.example.com"
-    echo "  $0 --token abc123 --panel https://panel.example.com --core mihomo"
     echo "  $0 --uninstall"
     echo ""
     echo "支持的平台:"
@@ -210,10 +207,6 @@ parse_args() {
                 ;;
             --panel)
                 PANEL_URL="$2"
-                shift 2
-                ;;
-            --core)
-                CORE_TYPE="$2"
                 shift 2
                 ;;
             --uninstall)
@@ -411,21 +404,9 @@ generate_config() {
         AGENT_ID="agent-$(date +%s)"
     fi
     
-    # 设置核心路径
-    case "$CORE_TYPE" in
-        sing-box)
-            CORE_PATH="/etc/sing-box/sing-box"
-            CONFIG_DIR="/etc/sing-box"
-            ;;
-        mihomo)
-            CORE_PATH="/etc/mihomo/mihomo"
-            CONFIG_DIR="/etc/mihomo"
-            ;;
-        *)
-            CORE_PATH="/root/${CORE_TYPE}/${CORE_TYPE}"
-            CONFIG_DIR="/root/${CORE_TYPE}"
-            ;;
-    esac
+    # 设置核心路径 (固定为 sing-box)
+    CORE_PATH="/root/sing-box/sing-box"
+    CONFIG_DIR="/root/sing-box"
     
     # 生成配置
     cat > "${INSTALL_DIR}/${CONFIG_FILE}" << EOF
@@ -433,7 +414,6 @@ generate_config() {
     "panel_url": "${PANEL_URL}",
     "token": "${TOKEN}",
     "agent_id": "${AGENT_ID}",
-    "core_type": "${CORE_TYPE}",
     "core_path": "${CORE_PATH}",
     "config_dir": "${CONFIG_DIR}"
 }
@@ -760,7 +740,6 @@ show_status() {
     echo "安装目录: $INSTALL_DIR"
     echo "配置文件: ${INSTALL_DIR}/${CONFIG_FILE}"
     echo "服务名称: $SERVICE_NAME"
-    echo "核心类型: $CORE_TYPE"
     echo "Init 系统: $INIT_SYSTEM"
     echo ""
     

@@ -186,9 +186,6 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 	if req.Port == 0 {
 		req.Port = 22
 	}
-	if req.CoreType == "" {
-		req.CoreType = "sing-box"
-	}
 	if req.Category == "" {
 		req.Category = "direct"
 	}
@@ -212,7 +209,6 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 		Node1:      req.Node1,
 		Node2:      req.Node2,
 		Node3:      req.Node3,
-		CoreType:   req.CoreType,
 		AgentToken: generateAgentToken(), // 自动生成 Token
 		Notes:      req.Notes,
 	}
@@ -272,9 +268,6 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 	server.Node1 = req.Node1
 	server.Node2 = req.Node2
 	server.Node3 = req.Node3
-	if req.CoreType != "" {
-		server.CoreType = req.CoreType
-	}
 	// DNS 解析策略直接赋值（none/ipv4/ipv6 都是有效值）
 	if req.DnsResolve != "" {
 		server.DnsResolve = req.DnsResolve
@@ -438,20 +431,20 @@ func (s *Server) handleDeployServerViaAgent(c *gin.Context, server *database.Ser
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
-	config, err := GenerateServerConfig(&fullServer, fullServer.CoreType)
+	config, err := GenerateServerConfig(&fullServer, "sing-box")
 	if err != nil {
 		errorJSON(c, http.StatusInternalServerError, "生成配置失败: "+err.Error())
 		return
 	}
 
 	// 目标路径
-	targetPath := "/root/" + server.CoreType
+	targetPath := "/root/sing-box"
 
 	// 根据部署类型决定发送的消息
 	if deployType == "folder" {
 		// 目录部署：部署核心程序和配置
 		data := &agent.DeployCoreData{
-			CoreType:   server.CoreType,
+			CoreType:   "sing-box",
 			TargetPath: targetPath,
 			Config:     config,
 		}
@@ -499,7 +492,7 @@ func (s *Server) handleDeployServerViaAgent(c *gin.Context, server *database.Ser
 	} else {
 		// 配置部署：只更新配置文件
 		data := &agent.SyncConfigData{
-			ConfigType: server.CoreType,
+			ConfigType: "sing-box",
 			Content:    config,
 			Restart:    true,
 		}

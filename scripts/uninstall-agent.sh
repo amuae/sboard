@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # SBoard Agent 一键卸载脚本
-# 卸载 Agent 及其部署的所有核心服务 (sing-box, mihomo)
+# 卸载 Agent 及其部署的核心服务 (sing-box)
 #
 # 支持的 Init 系统:
 #   - systemd (Ubuntu, Debian, CentOS, Fedora, Arch 等)
@@ -23,9 +23,9 @@ NC='\033[0m'
 
 # 配置
 AGENT_SERVICE="sboard-agent"
-CORE_SERVICES=("sing-box" "mihomo")
+CORE_SERVICES=("sing-box")
 AGENT_INSTALL_DIR="/opt/sboard-agent"
-CORE_INSTALL_DIRS=("/root/sing-box" "/root/mihomo" "/opt/sing-box" "/opt/mihomo")
+CORE_INSTALL_DIRS=("/root/sing-box" "/opt/sing-box")
 
 # Init 系统类型
 INIT_SYSTEM=""
@@ -320,7 +320,7 @@ interactive_menu() {
                 read -p "按回车键继续..." < /dev/tty
                 ;;
             2)
-                echo -e "${YELLOW}将卸载核心服务 (sing-box, mihomo)${NC}"
+                echo -e "${YELLOW}将卸载核心服务 (sing-box)${NC}"
                 read -p "确定吗? [y/N]: " -n 1 -r < /dev/tty
                 echo
                 if [[ $REPLY =~ ^[Yy]$ ]]; then

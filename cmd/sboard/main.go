@@ -14,7 +14,6 @@ import (
 	"github.com/sboard-go/sboard/internal/geoip"
 	"github.com/sboard-go/sboard/internal/handler"
 	"github.com/sboard-go/sboard/internal/scheduler"
-	"github.com/sboard-go/sboard/internal/storage"
 )
 
 var (
@@ -77,11 +76,6 @@ func main() {
 	}
 
 	log.Printf("SBoard %s 启动中...", Version)
-
-	// 释放 storage 目录（如果不存在）
-	if err := storage.ExtractStorage("storage"); err != nil {
-		log.Printf("释放 storage 目录失败: %v", err)
-	}
 
 	// 加载配置
 	cfg, err := config.Load(configPath)

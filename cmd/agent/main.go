@@ -45,7 +45,6 @@ type Config struct {
 	PanelURL  string `json:"panel_url"`  // 面板 WebSocket 地址
 	Token     string `json:"token"`      // 认证 Token
 	AgentID   string `json:"agent_id"`   // Agent ID
-	CoreType  string `json:"core_type"`  // 核心类型: sing-box/mihomo
 	CorePath  string `json:"core_path"`  // 核心路径
 	ConfigDir string `json:"config_dir"` // 配置目录
 }
@@ -142,9 +141,6 @@ func loadConfig(path string) (*Config, error) {
 	}
 
 	// 默认值
-	if config.CoreType == "" {
-		config.CoreType = "sing-box"
-	}
 	if config.CorePath == "" {
 		config.CorePath = "/usr/local/bin/sing-box"
 	}
@@ -249,14 +245,13 @@ func (a *Agent) register() error {
 	localIP := getLocalIP()
 
 	data := map[string]interface{}{
-		"token":     a.config.Token,
-		"agent_id":  a.config.AgentID,
-		"version":   Version,
-		"hostname":  hostname,
-		"local_ip":  localIP,
-		"os":        runtime.GOOS,
-		"arch":      runtime.GOARCH,
-		"core_type": a.config.CoreType,
+		"token":    a.config.Token,
+		"agent_id": a.config.AgentID,
+		"version":  Version,
+		"hostname": hostname,
+		"local_ip": localIP,
+		"os":       runtime.GOOS,
+		"arch":     runtime.GOARCH,
 	}
 
 	rawData, _ := json.Marshal(data)
@@ -315,7 +310,6 @@ func (a *Agent) sendHeartbeat() error {
 			strings.HasPrefix(name, "virbr") ||
 			strings.HasPrefix(name, "tun") ||
 			strings.HasPrefix(name, "tap") ||
-			strings.HasPrefix(name, "Meta") || // mihomo TUN
 			strings.HasPrefix(name, "utun") || // macOS TUN
 			strings.HasPrefix(name, "eth-iop") || // sing-box TUN
 			strings.HasPrefix(name, "wg") || // WireGuard
@@ -626,9 +620,6 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 	case "sing-box":
 		configPath = filepath.Join(a.config.ConfigDir, "config.json")
 		serviceName = "sing-box"
-	case "mihomo":
-		configPath = filepath.Join(a.config.ConfigDir, "config.yaml")
-		serviceName = "mihomo"
 	default:
 		log.Printf("未知配置类型: %s", data.ConfigType)
 		return
@@ -676,7 +667,7 @@ func (a *Agent) handleRestart(msg *Message) (*Message, error) {
 
 	serviceName := data.Service
 	if serviceName == "" {
-		serviceName = a.config.CoreType
+		serviceName = "sing-box"
 	}
 
 	// 使用平台特定的服务管理器
@@ -793,7 +784,7 @@ func getPublicIPFromAPI() string {
 // handleDeployCore 处理核心部署指令
 func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	var data struct {
-		CoreType   string `json:"core_type"`   // sing-box 或 mihomo
+		CoreType   string `json:"core_type"`   // sing-box
 		TargetPath string `json:"target_path"` // 目标安装路径
 		Config     string `json:"config"`      // 配置文件内容
 	}
@@ -818,26 +809,16 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	switch data.CoreType {
 	case "sing-box":
 		embedPath = "embed/configs/sing-box"
-	case "mihomo":
-		embedPath = "embed/configs/mihomo"
 	default:
 		return nil, fmt.Errorf("不支持的核心类型: %s", data.CoreType)
 	}
 
-	// 2. 确定对侧核心服务名
-	var otherService string
-	if data.CoreType == "sing-box" {
-		otherService = "mihomo"
-	} else {
-		otherService = "sing-box"
-	}
-
-	// 3. 创建目标目录
+	// 2. 创建目标目录
 	if err := os.MkdirAll(targetPath, 0755); err != nil {
 		return nil, fmt.Errorf("创建目标目录失败: %v", err)
 	}
 
-	// 4. 检查二进制文件是否存在（已有或需要从嵌入资源复制）
+	// 3. 检查二进制文件是否存在（已有或需要从嵌入资源复制）
 	binaryPath := filepath.Join(targetPath, binaryName)
 	binaryExists := false
 	if _, err := os.Stat(binaryPath); err == nil {
@@ -845,7 +826,7 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 		log.Printf("  发现现有二进制: %s", binaryPath)
 	}
 
-	// 5. 从嵌入资源复制文件到目标目录（证书等辅助文件）
+	// 4. 从嵌入资源复制文件到目标目录（证书等辅助文件）
 	embeddedBinaryFound := false
 	err := fs.WalkDir(embeddedConfigs, embedPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -876,7 +857,7 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 		var targetFileName string
 		isBinary := false
 		switch relPath {
-		case "sing-box", "sing-box.exe", "mihomo", "mihomo.exe":
+		case "sing-box", "sing-box.exe":
 			targetFileName = binaryName
 			isBinary = true
 			embeddedBinaryFound = true
@@ -944,23 +925,13 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 		log.Printf("  更新配置文件: %s", configPath)
 	}
 
-	// 8. 停止对侧核心服务（如果在运行）
-	if serviceManager.IsServiceRunning(otherService) {
-		log.Printf("  检测到对侧服务 %s 正在运行，正在停止...", otherService)
-		if err := serviceManager.StopService(otherService); err != nil {
-			log.Printf("  停止对侧服务失败: %v", err)
-		} else {
-			log.Printf("  对侧服务 %s 已停止", otherService)
-		}
-	}
-
-	// 9. 安装并启动服务 (使用平台特定的 ServiceManager)
+	// 5. 安装并启动服务 (使用平台特定的 ServiceManager)
 	log.Printf("  安装服务: %s", serviceName)
 	if err := serviceManager.InstallService(serviceName, targetPath, data.CoreType); err != nil {
 		return nil, fmt.Errorf("安装服务失败: %v", err)
 	}
 
-	// 10. 启动或重启服务
+	// 6. 启动或重启服务
 	if serviceManager.IsServiceRunning(serviceName) {
 		log.Printf("  服务 %s 正在运行，执行重启...", serviceName)
 		if err := serviceManager.RestartService(serviceName); err != nil {
@@ -977,22 +948,19 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 		}
 	}
 
-	// 11. 检查服务状态
-	otherRunning := serviceManager.IsServiceRunning(otherService)
+	// 7. 检查服务状态
 	currentRunning := serviceManager.IsServiceRunning(serviceName)
 
-	log.Printf("部署完成! %s: %v, %s: %v", serviceName, currentRunning, otherService, otherRunning)
+	log.Printf("部署完成! %s: %v", serviceName, currentRunning)
 
 	// 构建响应
 	respData := map[string]interface{}{
-		"success":       true,
-		"core_type":     data.CoreType,
-		"target_path":   targetPath,
-		"service_name":  serviceName,
-		"running":       currentRunning,
-		"other_service": otherService,
-		"other_running": otherRunning,
-		"platform":      runtime.GOOS + "/" + runtime.GOARCH,
+		"success":      true,
+		"core_type":    data.CoreType,
+		"target_path":  targetPath,
+		"service_name": serviceName,
+		"running":      currentRunning,
+		"platform":     runtime.GOOS + "/" + runtime.GOARCH,
 	}
 	rawData, _ := json.Marshal(respData)
 	return &Message{
