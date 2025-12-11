@@ -26,10 +26,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sboard-go/sboard/cmd/agent/netstatic"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
-	psnet "github.com/shirou/gopsutil/v3/net"
 )
 
 //go:embed embed/configs/*
@@ -51,14 +51,11 @@ type Config struct {
 
 // Agent 客户端
 type Agent struct {
-	config      *Config
-	conn        *websocket.Conn
-	connMu      sync.Mutex
-	startTime   time.Time
-	lastNetIn   uint64
-	lastNetOut  uint64
-	lastNetTime time.Time // 上次网络采集时间
-	stopChan    chan struct{}
+	config    *Config
+	conn      *websocket.Conn
+	connMu    sync.Mutex
+	startTime time.Time
+	stopChan  chan struct{}
 }
 
 // MessageType 消息类型
@@ -109,6 +106,15 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
+	// 初始化流量统计模块
+	netStaticPath := filepath.Join(filepath.Dir(configPath), "net_static.json")
+	if err := netstatic.Init(netStaticPath); err != nil {
+		log.Printf("警告: 初始化流量统计失败: %v", err)
+	}
+	if err := netstatic.Start(); err != nil {
+		log.Printf("警告: 启动流量统计失败: %v", err)
+	}
+
 	// 创建 Agent
 	agent := &Agent{
 		config:    config,
@@ -127,6 +133,11 @@ func main() {
 	log.Println("正在关闭 Agent...")
 	close(agent.stopChan)
 	agent.disconnect()
+
+	// 停止流量统计（保存数据）
+	if err := netstatic.Stop(); err != nil {
+		log.Printf("警告: 停止流量统计失败: %v", err)
+	}
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -289,50 +300,29 @@ func (a *Agent) sendHeartbeat() error {
 	memInfo, _ := mem.VirtualMemory()
 	diskInfo, _ := disk.Usage("/")
 
-	// 获取主网卡的流量（排除虚拟网卡、loopback、TUN 等）
-	netIO, _ := psnet.IOCounters(true) // true 表示按网卡分开统计
-
 	var cpuPct float64
 	if len(cpuPercent) > 0 {
 		cpuPct = cpuPercent[0]
 	}
 
-	// 找到主网卡并计算网速
-	var netInSpeed, netOutSpeed uint64
+	// 从 netstatic 获取流量统计（持久化的增量累计）
 	var totalBytesRecv, totalBytesSent uint64
-
-	for _, io := range netIO {
-		// 跳过虚拟网卡、loopback、TUN/TAP 等
-		name := io.Name
-		if name == "lo" ||
-			strings.HasPrefix(name, "docker") ||
-			strings.HasPrefix(name, "br-") ||
-			strings.HasPrefix(name, "veth") ||
-			strings.HasPrefix(name, "virbr") ||
-			strings.HasPrefix(name, "tun") ||
-			strings.HasPrefix(name, "tap") ||
-			strings.HasPrefix(name, "utun") || // macOS TUN
-			strings.HasPrefix(name, "eth-iop") || // sing-box TUN
-			strings.HasPrefix(name, "wg") || // WireGuard
-			strings.Contains(name, "tun") || // 其他 TUN 设备
-			strings.Contains(name, "sing") { // sing-box 相关
-			continue
-		}
-		totalBytesRecv += io.BytesRecv
-		totalBytesSent += io.BytesSent
-	}
-
-	now := time.Now()
-	if !a.lastNetTime.IsZero() {
-		elapsed := now.Sub(a.lastNetTime).Seconds()
-		if elapsed > 0 && totalBytesRecv >= a.lastNetIn && totalBytesSent >= a.lastNetOut {
-			netInSpeed = uint64(float64(totalBytesRecv-a.lastNetIn) / elapsed)
-			netOutSpeed = uint64(float64(totalBytesSent-a.lastNetOut) / elapsed)
+	trafficData, err := netstatic.GetTotalTraffic()
+	if err == nil {
+		for nicName, data := range trafficData {
+			if netstatic.ShouldIncludeNic(nicName) {
+				totalBytesRecv += data.Rx
+				totalBytesSent += data.Tx
+			}
 		}
 	}
-	a.lastNetIn = totalBytesRecv
-	a.lastNetOut = totalBytesSent
-	a.lastNetTime = now
+
+	// 获取实时网速（通过采样计算）
+	var netInSpeed, netOutSpeed uint64
+	if upSpeed, downSpeed, err := netstatic.GetCurrentSpeed(); err == nil {
+		netOutSpeed = upSpeed
+		netInSpeed = downSpeed
+	}
 
 	data := map[string]interface{}{
 		"uptime":           int64(time.Since(a.startTime).Seconds()),
@@ -341,8 +331,8 @@ func (a *Agent) sendHeartbeat() error {
 		"disk_percent":     diskInfo.UsedPercent,
 		"net_in":           netInSpeed,     // bytes/s (实时速率)
 		"net_out":          netOutSpeed,    // bytes/s (实时速率)
-		"net_in_transfer":  totalBytesRecv, // bytes (系统启动以来的总流量)
-		"net_out_transfer": totalBytesSent, // bytes (系统启动以来的总流量)
+		"net_in_transfer":  totalBytesRecv, // bytes (持久化的累计流量)
+		"net_out_transfer": totalBytesSent, // bytes (持久化的累计流量)
 		"connections":      0,
 	}
 

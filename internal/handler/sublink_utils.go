@@ -192,5 +192,35 @@ func isDomesticByIP(ipOrHost string) bool {
 		}
 	}
 
+	// 内网 IP 默认视为国内（云服务器 VPC 内网 IP）
+	if isPrivateIP(ip) {
+		return true
+	}
+
 	return geoip.IsChinaIP(ip)
+}
+
+// isPrivateIP 判断是否为内网 IP
+func isPrivateIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	// 检查私有地址段
+	privateBlocks := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"100.64.0.0/10",  // CGNAT
+		"169.254.0.0/16", // Link-local
+	}
+
+	for _, block := range privateBlocks {
+		_, cidr, _ := net.ParseCIDR(block)
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
