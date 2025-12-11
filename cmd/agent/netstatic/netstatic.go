@@ -69,8 +69,15 @@ var (
 
 func nowUnix() uint64 { return uint64(time.Now().Unix()) }
 
-// isNicAllowed 判断网卡是否在监控白名单内
+// isNicAllowed 判断网卡是否应该被采集
+// 1. 先检查黑名单（ShouldIncludeNic），排除虚拟网卡
+// 2. 如果配置了白名单，再检查是否在白名单中
 func isNicAllowed(name string) bool {
+	// 先应用黑名单过滤
+	if !ShouldIncludeNic(name) {
+		return false
+	}
+	// 如果配置了白名单，检查是否在白名单中
 	if len(config.Nics) == 0 {
 		return true
 	}
