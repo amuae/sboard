@@ -178,8 +178,10 @@ func (a *Agent) isDevDomain() bool {
 	}
 
 	// 从 PanelURL 提取域名
-	// 格式: ws://domain:port/ws/agent 或 wss://domain:port/ws/agent
+	// 格式: https://domain:port 或 wss://domain:port/ws/agent
 	panelURL := a.config.PanelURL
+	panelURL = strings.TrimPrefix(panelURL, "https://")
+	panelURL = strings.TrimPrefix(panelURL, "http://")
 	panelURL = strings.TrimPrefix(panelURL, "wss://")
 	panelURL = strings.TrimPrefix(panelURL, "ws://")
 
