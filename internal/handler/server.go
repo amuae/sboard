@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"embed"
 	"io/fs"
 	"net/http"
@@ -15,6 +16,7 @@ type Server struct {
 	config     *config.Config
 	router     *gin.Engine
 	frontendFS embed.FS
+	httpServer *http.Server
 }
 
 // NewServer 创建新的服务器实例
@@ -194,5 +196,17 @@ func (s *Server) serveFrontend() {
 
 // Run 启动服务器
 func (s *Server) Run() error {
-	return s.router.Run(s.config.Server.Listen)
+	s.httpServer = &http.Server{
+		Addr:    s.config.Server.Listen,
+		Handler: s.router,
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+// Shutdown 优雅关闭服务器
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
 }

@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/sboard-go/sboard/internal/config"
 	"github.com/sboard-go/sboard/internal/database"
@@ -108,23 +111,39 @@ func main() {
 	sched.SetConfigSyncCallback(handler.BroadcastConfigUpdate)
 	sched.Start()
 
-	// 创建并启动 HTTP 服务器
+	// 创建 HTTP 服务器
 	server := handler.NewServer(cfg, frontendFS)
 
 	// 优雅关闭
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// 在 goroutine 中启动服务器
 	go func() {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		<-sigChan
-		log.Println("收到关闭信号，正在停止...")
-		sched.Stop()
-		os.Exit(0)
+		log.Printf("SBoard 服务启动于 %s", cfg.Server.Listen)
+		if err := server.Run(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("服务器启动失败: %v", err)
+		}
 	}()
 
-	log.Printf("SBoard 服务启动于 %s", cfg.Server.Listen)
-	if err := server.Run(); err != nil {
-		log.Fatalf("服务器启动失败: %v", err)
+	// 等待关闭信号
+	<-sigChan
+	log.Println("收到关闭信号，正在停止...")
+
+	// 停止调度器
+	sched.Stop()
+
+	// 优雅关闭 HTTP 服务器（等待最多 10 秒）
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("服务器关闭失败: %v", err)
 	}
+
+	// 关闭 GeoIP
+	geoip.Close()
+
+	log.Println("SBoard 已停止")
 }
 
 // initAdminAccount 初始化管理员账户（仅在无管理员时允许）
