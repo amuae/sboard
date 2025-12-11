@@ -38,7 +38,7 @@ func main() {
 	)
 
 	flag.BoolVar(&showVersion, "v", false, "显示版本号")
-	flag.StringVar(&configPath, "c", "data/config.yaml", "配置文件路径")
+	flag.StringVar(&configPath, "c", "", "配置文件路径 (默认: <数据目录>/config.yaml)")
 	flag.StringVar(&listenAddr, "l", "", "监听地址 (覆盖配置文件)")
 	flag.StringVar(&dataDir, "d", "data", "数据目录")
 	flag.BoolVar(&initAdmin, "init-admin", false, "初始化管理员账户后退出")
@@ -50,6 +50,11 @@ func main() {
 	if showVersion {
 		fmt.Printf("SBoard %s (commit: %s)\n", Version, CommitHash)
 		os.Exit(0)
+	}
+
+	// 如果未指定配置文件路径，使用数据目录下的 config.yaml
+	if configPath == "" {
+		configPath = fmt.Sprintf("%s/config.yaml", dataDir)
 	}
 
 	// 确保数据目录存在
