@@ -144,10 +144,15 @@ check_dev_domain() {
     fi
 }
 
+# 检查是否可交互（终端可用）
+can_interact() {
+    [[ -t 0 ]] || [[ -e /dev/tty ]]
+}
+
 # 解析命令行参数
 parse_args() {
     # 如果直接从终端运行且没有参数，显示菜单
-    if [[ $# -eq 0 ]] && [[ -t 0 ]]; then
+    if [[ $# -eq 0 ]] && can_interact; then
         COMMAND="menu"
         return
     fi
@@ -204,9 +209,9 @@ parse_args() {
 
 # 交互式配置
 interactive_config() {
-    # 检查是否可以交互 (stdin 是否是终端)
-    if [[ ! -t 0 ]]; then
-        warning "检测到管道模式，使用默认配置"
+    # 检查是否可以交互
+    if ! can_interact; then
+        warning "检测到非交互模式，使用默认配置"
         warning "如需自定义配置，请使用参数: --domain <domain> --port <port> --user <user> --pass <pass>"
         
         # 使用默认值
@@ -231,7 +236,7 @@ interactive_config() {
     
     # 步骤 1: 安装路径
     echo -e "${YELLOW}[1/5]${NC} 设置安装路径"
-    read -p "安装路径 [${INSTALL_DIR}]: " input
+    read -p "安装路径 [${INSTALL_DIR}]: " input </dev/tty
     if [[ -n "$input" ]]; then
         INSTALL_DIR="$input"
     fi
@@ -242,7 +247,7 @@ interactive_config() {
     echo -e "${YELLOW}[2/5]${NC} 设置面板入口域名"
     echo -e "  ${BLUE}提示:${NC} 用于访问面板的域名，如 panel.example.com"
     while [[ -z "$PANEL_DOMAIN" ]]; do
-        read -p "面板域名: " PANEL_DOMAIN
+        read -p "面板域名: " PANEL_DOMAIN </dev/tty
         if [[ -z "$PANEL_DOMAIN" ]]; then
             echo -e "  ${RED}域名不能为空，请重新输入${NC}"
         fi
@@ -253,7 +258,7 @@ interactive_config() {
     # 步骤 3: 监听端口
     echo -e "${YELLOW}[3/5]${NC} 设置监听端口"
     echo -e "  ${BLUE}提示:${NC} 直接回车将随机生成 5000-65535 之间的端口"
-    read -p "监听端口 [随机]: " input
+    read -p "监听端口 [随机]: " input </dev/tty
     if [[ -n "$input" ]]; then
         # 验证端口号
         if [[ ! "$input" =~ ^[0-9]+$ ]] || [[ "$input" -lt 1 ]] || [[ "$input" -gt 65535 ]]; then
@@ -269,7 +274,7 @@ interactive_config() {
     # 步骤 4: 管理员账户
     echo -e "${YELLOW}[4/5]${NC} 设置管理员账户"
     while [[ -z "$ADMIN_USER" ]]; do
-        read -p "管理员用户名: " ADMIN_USER
+        read -p "管理员用户名: " ADMIN_USER </dev/tty
         if [[ -z "$ADMIN_USER" ]]; then
             echo -e "  ${RED}用户名不能为空，请重新输入${NC}"
         fi
@@ -279,7 +284,7 @@ interactive_config() {
     # 步骤 5: 管理员密码
     echo -e "${YELLOW}[5/5]${NC} 设置管理员密码"
     while true; do
-        read -s -p "管理员密码: " ADMIN_PASS
+        read -s -p "管理员密码: " ADMIN_PASS </dev/tty
         echo ""
         if [[ -z "$ADMIN_PASS" ]]; then
             echo -e "  ${RED}密码不能为空，请重新输入${NC}"
@@ -290,7 +295,7 @@ interactive_config() {
             continue
         fi
         
-        read -s -p "确认密码: " confirm_pass
+        read -s -p "确认密码: " confirm_pass </dev/tty
         echo ""
         if [[ "$ADMIN_PASS" != "$confirm_pass" ]]; then
             echo -e "  ${RED}两次输入的密码不一致，请重新输入${NC}"
@@ -316,7 +321,7 @@ interactive_config() {
         echo -e "  版本:     ${YELLOW}预发布版本${NC}"
     fi
     echo ""
-    read -p "确认安装? [Y/n]: " confirm
+    read -p "确认安装? [Y/n]: " confirm </dev/tty
     if [[ "$confirm" =~ ^[Nn] ]]; then
         echo "安装已取消"
         exit 0
@@ -831,8 +836,8 @@ do_install() {
     # 检查是否已安装
     if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
         warning "检测到已安装 SBoard"
-        if [[ -t 0 ]]; then
-            read -p "是否覆盖安装? [y/N]: " confirm
+        if can_interact; then
+            read -p "是否覆盖安装? [y/N]: " confirm </dev/tty
             if [[ ! "$confirm" =~ ^[Yy] ]]; then
                 echo "安装已取消"
                 exit 0
@@ -913,9 +918,9 @@ do_uninstall() {
     detect_init_system
     
     # 确认
-    if [[ -t 0 ]]; then
+    if can_interact; then
         echo -e "${RED}警告: 此操作将删除 SBoard 及所有数据!${NC}"
-        read -p "确认卸载? [y/N]: " confirm
+        read -p "确认卸载? [y/N]: " confirm </dev/tty
         if [[ ! "$confirm" =~ ^[Yy] ]]; then
             echo "卸载已取消"
             exit 0
@@ -969,7 +974,7 @@ show_menu() {
         echo "  5) 重启服务"
         echo "  0) 退出"
         echo ""
-        read -p "请选择 [0-5]: " choice
+        read -p "请选择 [0-5]: " choice </dev/tty
         
         case $choice in
             1)
