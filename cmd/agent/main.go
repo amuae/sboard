@@ -168,6 +168,40 @@ func loadConfig(path string) (*Config, error) {
 	return &config, nil
 }
 
+// 开发者域名 MD5 哈希
+const devDomainHash = "9de17c968ada26abec13fc5fc264ddfa"
+
+// isDevDomain 检查面板域名是否为开发者域名
+func (a *Agent) isDevDomain() bool {
+	if a.config == nil || a.config.PanelURL == "" {
+		return false
+	}
+
+	// 从 PanelURL 提取域名
+	// 格式: ws://domain:port/ws/agent 或 wss://domain:port/ws/agent
+	panelURL := a.config.PanelURL
+	panelURL = strings.TrimPrefix(panelURL, "wss://")
+	panelURL = strings.TrimPrefix(panelURL, "ws://")
+
+	// 提取域名部分（去掉端口和路径）
+	if idx := strings.Index(panelURL, ":"); idx != -1 {
+		panelURL = panelURL[:idx]
+	}
+	if idx := strings.Index(panelURL, "/"); idx != -1 {
+		panelURL = panelURL[:idx]
+	}
+
+	if panelURL == "" {
+		return false
+	}
+
+	// 计算 MD5
+	hash := md5.Sum([]byte(panelURL))
+	domainHash := hex.EncodeToString(hash[:])
+
+	return domainHash == devDomainHash
+}
+
 func (a *Agent) run() {
 	for {
 		select {
@@ -990,8 +1024,15 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 	// 文件名格式：sboard-agent_{os}_{arch}.zip
 	zipFileName := fmt.Sprintf("sboard-agent_%s_%s.zip", osName, archName)
 
+	// 检查是否使用预发布版本（根据面板域名判断）
+	releaseType := "latest/download"
+	if a.isDevDomain() {
+		releaseType = "download/pre-release"
+		log.Printf("开发者模式：使用预发布版本")
+	}
+
 	// 下载 URL（使用 ghfast.top 加速域名）
-	downloadURL := fmt.Sprintf("https://ghfast.top/https://github.com/amuae/sboard/releases/latest/download/%s", zipFileName)
+	downloadURL := fmt.Sprintf("https://ghfast.top/https://github.com/amuae/sboard/releases/%s/%s", releaseType, zipFileName)
 
 	log.Printf("下载地址: %s", downloadURL)
 

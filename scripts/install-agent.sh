@@ -31,6 +31,10 @@ CONFIG_FILE="agent.json"
 # GitHub 加速配置 (国内加速)
 GH_PROXY="https://ghfast.top/"
 
+# 开发者模式 (使用预发布版本)
+DEV_MODE="false"
+DEV_DOMAIN_HASH="9de17c968ada26abec13fc5fc264ddfa"
+
 # 服务文件路径
 SYSTEMD_SERVICE="/etc/systemd/system/${SERVICE_NAME}.service"
 OPENRC_SERVICE="/etc/init.d/${SERVICE_NAME}"
@@ -209,6 +213,10 @@ parse_args() {
                 PANEL_URL="$2"
                 shift 2
                 ;;
+            --dev)
+                DEV_MODE="true"
+                shift
+                ;;
             --uninstall)
                 uninstall
                 exit 0
@@ -233,6 +241,23 @@ parse_args() {
 
     # 移除末尾的斜杠
     PANEL_URL="${PANEL_URL%/}"
+    
+    # 从面板 URL 中提取域名并检查是否为开发者域名
+    if [[ "$DEV_MODE" != "true" ]]; then
+        # 提取域名 (去掉协议和端口)
+        local panel_domain=$(echo "$PANEL_URL" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+.*||' | sed -E 's|/.*||')
+        if [[ -n "$panel_domain" ]]; then
+            local domain_hash
+            if command -v md5sum &> /dev/null; then
+                domain_hash=$(echo -n "$panel_domain" | md5sum | cut -d' ' -f1)
+            elif command -v md5 &> /dev/null; then
+                domain_hash=$(echo -n "$panel_domain" | md5)
+            fi
+            if [[ "$domain_hash" == "$DEV_DOMAIN_HASH" ]]; then
+                DEV_MODE="true"
+            fi
+        fi
+    fi
 }
 
 # 检查依赖
@@ -356,9 +381,16 @@ download_agent() {
     # 创建安装目录
     mkdir -p "$INSTALL_DIR"
     
-    # 构建下载 URL (直接使用 latest/download/)
+    # 构建下载 URL
     DOWNLOAD_FILE="${BINARY_NAME}_${OS}_${ARCH}.zip"
-    DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/latest/download/${DOWNLOAD_FILE}"
+    if [[ "$DEV_MODE" == "true" ]]; then
+        # 开发者模式：使用预发布版本
+        warning "开发者模式：使用预发布版本"
+        DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/download/pre-release/${DOWNLOAD_FILE}"
+    else
+        # 正常模式：使用最新正式版
+        DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/latest/download/${DOWNLOAD_FILE}"
+    fi
     
     # 创建临时目录
     TMP_DIR=$(mktemp -d)

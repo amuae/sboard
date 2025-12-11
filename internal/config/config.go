@@ -18,6 +18,7 @@ type Config struct {
 type ServerConfig struct {
 	Listen string `yaml:"listen"`
 	Debug  bool   `yaml:"debug"`
+	Domain string `yaml:"domain"` // 面板入口域名
 }
 
 // DataConfig 数据配置

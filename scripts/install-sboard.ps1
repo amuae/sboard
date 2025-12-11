@@ -38,6 +38,12 @@ param(
     [string]$Pass,
     
     [Parameter(Mandatory=$false)]
+    [string]$Domain,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$Dev,
+    
+    [Parameter(Mandatory=$false)]
     [switch]$NoInteractive,
     
     [Parameter(Mandatory=$false)]
@@ -49,6 +55,8 @@ $GITHUB_REPO = "amuae/sboard"
 $SERVICE_NAME = "sboard"
 $BINARY_NAME = "sboard.exe"
 $CONFIG_FILE = "config.yaml"
+$DEV_DOMAIN_HASH = "9de17c968ada26abec13fc5fc264ddfa"
+$script:DEV_MODE = $false
 
 # GitHub 加速配置 (国内加速)
 $GH_PROXY = "https://ghfast.top/"
@@ -88,9 +96,11 @@ function Show-Help {
     Write-Host ""
     Write-Host "参数:"
     Write-Host "  -InstallDir <path>  安装路径 (默认: C:\sboard)"
+    Write-Host "  -Domain <domain>    面板入口域名"
     Write-Host "  -Port <port>        监听端口 (默认: 8080)"
     Write-Host "  -User <user>        管理员用户名 (默认: admin)"
     Write-Host "  -Pass <pass>        管理员密码 (默认: admin123)"
+    Write-Host "  -Dev                强制使用预发布版本"
     Write-Host "  -NoInteractive      非交互模式"
     Write-Host ""
     Write-Host "环境变量:"
@@ -115,6 +125,38 @@ function Show-Help {
 function Test-Administrator {
     $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# 检查域名是否为开发者域名
+function Test-DevDomain {
+    param([string]$DomainName)
+    
+    if ([string]::IsNullOrEmpty($DomainName)) {
+        return
+    }
+    
+    # 计算域名的 MD5
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($DomainName)
+    $hash = $md5.ComputeHash($bytes)
+    $domainHash = [BitConverter]::ToString($hash).Replace("-", "").ToLower()
+    
+    # 检查是否匹配开发者域名
+    if ($domainHash -eq $DEV_DOMAIN_HASH) {
+        $script:DEV_MODE = $true
+    }
+}
+
+# 从配置文件读取域名
+function Get-ConfigDomain {
+    $configPath = Join-Path $InstallDir "data" $CONFIG_FILE
+    if (Test-Path $configPath) {
+        $content = Get-Content $configPath -Raw
+        if ($content -match 'domain:\s*"?([^"\s]+)"?') {
+            return $matches[1]
+        }
+    }
+    return $null
 }
 
 # 检测架构
@@ -438,7 +480,12 @@ function Download-Sboard {
     
     # 构建下载 URL
     $downloadFile = "sboard_windows_${Arch}.zip"
-    $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/latest/download/$downloadFile"
+    if ($script:DEV_MODE) {
+        Write-Warn "开发者模式：使用预发布版本"
+        $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/download/pre-release/$downloadFile"
+    } else {
+        $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/latest/download/$downloadFile"
+    }
     $tempZip = Join-Path $env:TEMP $downloadFile
     
     Write-Info "下载: $downloadUrl"
@@ -480,12 +527,19 @@ function New-Config {
     
     $dataDir = (Join-Path $InstallDir "data") -replace '\\', '\\'
     
+    # 有域名时监听本地（配合 nginx 反代），无域名时监听所有接口
+    $listenAddr = "0.0.0.0"
+    if ($Domain -and $Domain -ne "localhost") {
+        $listenAddr = "127.0.0.1"
+    }
+    
     $config = @"
 # SBoard 配置文件
 
 server:
-  listen: "0.0.0.0:$Port"
+  listen: "${listenAddr}:$Port"
   debug: false
+  domain: "$Domain"
 
 data:
   dir: "$dataDir"
@@ -495,14 +549,28 @@ security:
   jwt_expire_hour: 168
   session_name: "sboard_token"
 
-# 初始管理员账号 (首次启动后会自动创建)
-admin:
-  username: "$User"
-  password: "$Pass"
+oauth:
+  disable_password_login: false
 "@
     
     Set-Content -Path $configPath -Value $config -Encoding UTF8
     Write-Success "配置文件已生成: $configPath"
+}
+
+# 初始化管理员账户
+function Initialize-Admin {
+    Write-Info "初始化管理员账户..."
+    
+    $binaryPath = Join-Path $InstallDir $BINARY_NAME
+    $dataDir = Join-Path $InstallDir "data"
+    
+    # 运行 sboard 初始化管理员
+    try {
+        $result = & $binaryPath -d $dataDir -init-admin -admin-user $User -admin-pass $Pass 2>&1
+        Write-Success "管理员账户初始化完成"
+    } catch {
+        Write-Warn "管理员账户初始化失败: $_"
+    }
 }
 
 # 创建 Windows 服务
@@ -545,9 +613,33 @@ function Show-InstallStatus {
     Write-Host "  配置文件: $(Join-Path $InstallDir 'data' $CONFIG_FILE)"
     Write-Host "  服务名称: $SERVICE_NAME"
     Write-Host ""
-    Write-Host "  访问地址: " -NoNewline
-    Write-Host "http://localhost:$Port" -ForegroundColor Cyan
-    Write-Host "  管理员用户: $User"
+    if ($Domain -and $Domain -ne "localhost") {
+        Write-Host "  面板域名: " -NoNewline
+        Write-Host "$Domain" -ForegroundColor Cyan
+        Write-Host "  监听地址: " -NoNewline
+        Write-Host "127.0.0.1:$Port" -ForegroundColor Cyan
+        Write-Host "  (仅本地，需配置反向代理)" -ForegroundColor Yellow
+        Write-Host "  访问地址: " -NoNewline
+        Write-Host "https://$Domain" -ForegroundColor Cyan
+    } else {
+        Write-Host "  监听地址: " -NoNewline
+        Write-Host "0.0.0.0:$Port" -ForegroundColor Cyan
+        Write-Host "  访问地址: " -NoNewline
+        Write-Host "http://localhost:$Port" -ForegroundColor Cyan
+    }
+    Write-Host ""
+    Write-Host "==========================================" -ForegroundColor Yellow
+    Write-Host "      管理员账户信息 (请牢记!)" -ForegroundColor Yellow
+    Write-Host "==========================================" -ForegroundColor Yellow
+    Write-Host "  用户名: " -NoNewline
+    Write-Host "$User" -ForegroundColor Cyan
+    Write-Host "  密码:   " -NoNewline
+    Write-Host "$Pass" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  重要提示:" -ForegroundColor Red
+    Write-Host "  - 管理员账户只能初始化一次，无法通过命令行修改"
+    Write-Host "  - 登录后可在 Web 界面修改密码"
+    Write-Host "  - 如忘记密码，需删除数据库文件后重新安装"
     Write-Host ""
     Write-Host "常用命令:" -ForegroundColor Yellow
     Write-Host "  查看状态: Get-Service $SERVICE_NAME"
@@ -555,6 +647,32 @@ function Show-InstallStatus {
     Write-Host "  停止服务: Stop-Service $SERVICE_NAME"
     Write-Host "  启动服务: Start-Service $SERVICE_NAME"
     Write-Host ""
+    
+    if ($Domain -and $Domain -ne "localhost") {
+        Write-Host "==========================================" -ForegroundColor Yellow
+        Write-Host "      Nginx 反向代理配置示例" -ForegroundColor Yellow
+        Write-Host "==========================================" -ForegroundColor Yellow
+        Write-Host "server {"
+        Write-Host "    listen 80;"
+        Write-Host "    listen 443 ssl http2;"
+        Write-Host "    server_name $Domain;"
+        Write-Host ""
+        Write-Host "    location / {"
+        Write-Host "        proxy_pass http://127.0.0.1:$Port;"
+        Write-Host "        proxy_set_header Host `$host;"
+        Write-Host "        proxy_set_header X-Real-IP `$remote_addr;"
+        Write-Host "        proxy_set_header X-Forwarded-For `$proxy_add_x_forwarded_for;"
+        Write-Host "        proxy_set_header X-Forwarded-Proto `$scheme;"
+        Write-Host "        proxy_http_version 1.1;"
+        Write-Host "        proxy_set_header Upgrade `$http_upgrade;"
+        Write-Host "        proxy_set_header Connection `"upgrade`";"
+        Write-Host "    }"
+        Write-Host "}"
+        Write-Host ""
+        Write-Host "提示: 前端会验证访问域名是否与配置的域名一致" -ForegroundColor Yellow
+        Write-Host "      其他域名访问将显示警告" -ForegroundColor Yellow
+    }
+    
     Write-Host "或运行此脚本进入管理菜单:"
     Write-Host "  .\install-sboard.ps1"
     Write-Host ""
@@ -608,6 +726,16 @@ function Install-Sboard {
         Write-Err "请以管理员身份运行此脚本"
     }
     
+    # 处理 -Dev 参数
+    if ($Dev) {
+        $script:DEV_MODE = $true
+    }
+    
+    # 处理 -Domain 参数
+    if ($Domain) {
+        Test-DevDomain -DomainName $Domain
+    }
+    
     # 从环境变量读取参数
     if ($env:PORT -and (-not $Port -or $Port -eq 8080)) {
         $script:Port = [int]$env:PORT
@@ -649,6 +777,9 @@ function Install-Sboard {
     # 生成配置
     New-Config
     
+    # 初始化管理员账户
+    Initialize-Admin
+    
     # 创建服务
     New-WindowsService
     
@@ -680,6 +811,20 @@ function Update-Sboard {
     }
     
     Write-Info "开始更新 SBoard..."
+    
+    # 处理 -Dev 参数
+    if ($Dev) {
+        $script:DEV_MODE = $true
+    }
+    
+    # 从配置文件读取域名，判断是否使用预发布版本
+    if (-not $script:DEV_MODE) {
+        $configDomain = Get-ConfigDomain
+        if ($configDomain) {
+            Write-Info "读取配置域名: $configDomain"
+            Test-DevDomain -DomainName $configDomain
+        }
+    }
     
     # 检测架构
     $arch = Get-Architecture

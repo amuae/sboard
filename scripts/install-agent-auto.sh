@@ -27,7 +27,7 @@ NC='\033[0m'
 
 # GitHub 加速
 GH_PROXY="https://ghfast.top/"
-REPO_URL="https://raw.githubusercontent.com/amuae/sboard/main/scripts"
+REPO_URL="${GH_PROXY}https://raw.githubusercontent.com/amuae/sboard/main/scripts"
 
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }

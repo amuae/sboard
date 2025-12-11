@@ -29,10 +29,12 @@ INSTALL_DIR="/opt/sboard"
 DATA_DIR=""  # 默认为 INSTALL_DIR/data
 SERVICE_NAME="sboard"
 BINARY_NAME="sboard"
-LISTEN_PORT="8080"
+LISTEN_PORT=""
 ADMIN_USER=""
 ADMIN_PASS=""
-INTERACTIVE="true"  # 是否交互式
+PANEL_DOMAIN=""
+DEV_MODE="false"
+DEV_DOMAIN_HASH="9de17c968ada26abec13fc5fc264ddfa"
 
 # GitHub 加速配置 (国内加速)
 GH_PROXY="https://ghfast.top/"
@@ -79,22 +81,20 @@ show_help() {
     echo "  help       显示帮助"
     echo ""
     echo "选项:"
-    echo "  --path <path>     安装路径 (默认: /opt/sboard)"
-    echo "  --port <port>     监听端口 (默认: 8080)"
-    echo "  --user <user>     管理员用户名 (默认: admin)"
-    echo "  --pass <pass>     管理员密码 (默认: admin123)"
-    echo "  --no-interactive  非交互模式，使用默认值或指定参数"
-    echo "  -h, --help        显示帮助"
+    echo "  --path <path>       安装路径 (默认: /opt/sboard)"
+    echo "  --domain <domain>   面板入口域名"
+    echo "  --port <port>       监听端口 (不指定则随机 5000-65535)"
+    echo "  --user <user>       管理员用户名"
+    echo "  --pass <pass>       管理员密码"
+    echo "  --dev               强制使用预发布版本"
+    echo "  -h, --help          显示帮助"
     echo ""
     echo "示例:"
     echo "  # 交互式安装"
     echo "  curl -fsSL <url> | bash"
     echo ""
     echo "  # 指定参数安装"
-    echo "  curl -fsSL <url> | bash -s -- --port 9000 --user admin --pass mypassword"
-    echo ""
-    echo "  # 非交互式安装（使用默认值）"
-    echo "  curl -fsSL <url> | bash -s -- --no-interactive"
+    echo "  curl -fsSL <url> | bash -s -- --domain panel.example.com --port 9000 --user admin --pass mypassword"
     echo ""
     echo "支持的平台:"
     echo "  Linux: amd64, 386, arm64, armv7, armv6"
@@ -105,6 +105,43 @@ show_help() {
     echo "  - OpenRC (Alpine Linux, Gentoo)"
     echo "  - init.d/SysVinit (老版本系统)"
     echo ""
+}
+
+# 生成随机端口 (5000-65535)
+generate_random_port() {
+    local port
+    while true; do
+        port=$((RANDOM % 60536 + 5000))
+        # 检查端口是否被占用
+        if ! ss -tuln 2>/dev/null | grep -q ":${port} " && \
+           ! netstat -tuln 2>/dev/null | grep -q ":${port} "; then
+            echo "$port"
+            return
+        fi
+    done
+}
+
+# 检查域名是否为开发者域名
+check_dev_domain() {
+    local domain="$1"
+    if [[ -z "$domain" ]]; then
+        return
+    fi
+    
+    # 计算域名的 MD5
+    local domain_hash
+    if command -v md5sum &> /dev/null; then
+        domain_hash=$(echo -n "$domain" | md5sum | cut -d' ' -f1)
+    elif command -v md5 &> /dev/null; then
+        domain_hash=$(echo -n "$domain" | md5)
+    else
+        return
+    fi
+    
+    # 检查是否匹配开发者域名
+    if [[ "$domain_hash" == "$DEV_DOMAIN_HASH" ]]; then
+        DEV_MODE="true"
+    fi
 }
 
 # 解析命令行参数
@@ -128,6 +165,11 @@ parse_args() {
                 INSTALL_DIR="$2"
                 shift 2
                 ;;
+            --domain)
+                PANEL_DOMAIN="$2"
+                check_dev_domain "$2"
+                shift 2
+                ;;
             --port)
                 LISTEN_PORT="$2"
                 shift 2
@@ -140,8 +182,8 @@ parse_args() {
                 ADMIN_PASS="$2"
                 shift 2
                 ;;
-            --no-interactive)
-                INTERACTIVE="false"
+            --dev)
+                DEV_MODE="true"
                 shift
                 ;;
             -h|--help|help)
@@ -162,21 +204,16 @@ parse_args() {
 
 # 交互式配置
 interactive_config() {
-    if [[ "$INTERACTIVE" != "true" ]]; then
-        # 非交互模式，使用默认值
-        if [[ -z "$ADMIN_USER" ]]; then
-            ADMIN_USER="admin"
-        fi
-        if [[ -z "$ADMIN_PASS" ]]; then
-            ADMIN_PASS="admin123"
-        fi
-        return
-    fi
-    
     # 检查是否可以交互 (stdin 是否是终端)
     if [[ ! -t 0 ]]; then
         warning "检测到管道模式，使用默认配置"
-        warning "如需自定义配置，请使用参数: --port <port> --user <user> --pass <pass>"
+        warning "如需自定义配置，请使用参数: --domain <domain> --port <port> --user <user> --pass <pass>"
+        
+        # 使用默认值
+        if [[ -z "$LISTEN_PORT" ]]; then
+            LISTEN_PORT=$(generate_random_port)
+            info "随机生成端口: $LISTEN_PORT"
+        fi
         if [[ -z "$ADMIN_USER" ]]; then
             ADMIN_USER="admin"
         fi
@@ -187,51 +224,97 @@ interactive_config() {
     fi
     
     echo ""
-    echo -e "${CYAN}========================================${NC}"
-    echo -e "${CYAN}         SBoard 安装配置${NC}"
-    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${CYAN}        SBoard 面板安装向导${NC}"
+    echo -e "${CYAN}==========================================${NC}"
     echo ""
     
-    # 安装路径
+    # 步骤 1: 安装路径
+    echo -e "${YELLOW}[1/5]${NC} 设置安装路径"
     read -p "安装路径 [${INSTALL_DIR}]: " input
     if [[ -n "$input" ]]; then
         INSTALL_DIR="$input"
-        DATA_DIR="${INSTALL_DIR}/data"
     fi
-    
-    # 监听端口
-    read -p "监听端口 [${LISTEN_PORT}]: " input
-    if [[ -n "$input" ]]; then
-        LISTEN_PORT="$input"
-    fi
-    
-    # 管理员用户名
-    default_user="${ADMIN_USER:-admin}"
-    read -p "管理员用户名 [${default_user}]: " input
-    if [[ -n "$input" ]]; then
-        ADMIN_USER="$input"
-    else
-        ADMIN_USER="$default_user"
-    fi
-    
-    # 管理员密码
-    default_pass="${ADMIN_PASS:-admin123}"
-    read -s -p "管理员密码 [${default_pass}]: " input
+    DATA_DIR="${INSTALL_DIR}/data"
     echo ""
+    
+    # 步骤 2: 面板入口域名
+    echo -e "${YELLOW}[2/5]${NC} 设置面板入口域名"
+    echo -e "  ${BLUE}提示:${NC} 用于访问面板的域名，如 panel.example.com"
+    while [[ -z "$PANEL_DOMAIN" ]]; do
+        read -p "面板域名: " PANEL_DOMAIN
+        if [[ -z "$PANEL_DOMAIN" ]]; then
+            echo -e "  ${RED}域名不能为空，请重新输入${NC}"
+        fi
+    done
+    check_dev_domain "$PANEL_DOMAIN"
+    echo ""
+    
+    # 步骤 3: 监听端口
+    echo -e "${YELLOW}[3/5]${NC} 设置监听端口"
+    echo -e "  ${BLUE}提示:${NC} 直接回车将随机生成 5000-65535 之间的端口"
+    read -p "监听端口 [随机]: " input
     if [[ -n "$input" ]]; then
-        ADMIN_PASS="$input"
+        # 验证端口号
+        if [[ ! "$input" =~ ^[0-9]+$ ]] || [[ "$input" -lt 1 ]] || [[ "$input" -gt 65535 ]]; then
+            error "无效的端口号: $input"
+        fi
+        LISTEN_PORT="$input"
     else
-        ADMIN_PASS="$default_pass"
+        LISTEN_PORT=$(generate_random_port)
+        info "随机生成端口: $LISTEN_PORT"
     fi
+    echo ""
+    
+    # 步骤 4: 管理员账户
+    echo -e "${YELLOW}[4/5]${NC} 设置管理员账户"
+    while [[ -z "$ADMIN_USER" ]]; do
+        read -p "管理员用户名: " ADMIN_USER
+        if [[ -z "$ADMIN_USER" ]]; then
+            echo -e "  ${RED}用户名不能为空，请重新输入${NC}"
+        fi
+    done
+    echo ""
+    
+    # 步骤 5: 管理员密码
+    echo -e "${YELLOW}[5/5]${NC} 设置管理员密码"
+    while true; do
+        read -s -p "管理员密码: " ADMIN_PASS
+        echo ""
+        if [[ -z "$ADMIN_PASS" ]]; then
+            echo -e "  ${RED}密码不能为空，请重新输入${NC}"
+            continue
+        fi
+        if [[ ${#ADMIN_PASS} -lt 6 ]]; then
+            echo -e "  ${RED}密码长度至少 6 位，请重新输入${NC}"
+            continue
+        fi
+        
+        read -s -p "确认密码: " confirm_pass
+        echo ""
+        if [[ "$ADMIN_PASS" != "$confirm_pass" ]]; then
+            echo -e "  ${RED}两次输入的密码不一致，请重新输入${NC}"
+            ADMIN_PASS=""
+            continue
+        fi
+        break
+    done
+    echo ""
     
     # 确认配置
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${CYAN}          请确认安装配置${NC}"
+    echo -e "${CYAN}==========================================${NC}"
     echo ""
-    echo -e "${YELLOW}请确认安装配置:${NC}"
-    echo "  安装路径: ${INSTALL_DIR}"
-    echo "  数据目录: ${DATA_DIR}"
-    echo "  监听端口: ${LISTEN_PORT}"
-    echo "  管理员: ${ADMIN_USER}"
-    echo "  密码: ******"
+    echo -e "  安装路径: ${GREEN}${INSTALL_DIR}${NC}"
+    echo -e "  数据目录: ${GREEN}${DATA_DIR}${NC}"
+    echo -e "  面板域名: ${GREEN}${PANEL_DOMAIN}${NC}"
+    echo -e "  监听端口: ${GREEN}${LISTEN_PORT}${NC}"
+    echo -e "  管理员:   ${GREEN}${ADMIN_USER}${NC}"
+    echo -e "  密码:     ${GREEN}******${NC}"
+    if [[ "$DEV_MODE" == "true" ]]; then
+        echo -e "  版本:     ${YELLOW}预发布版本${NC}"
+    fi
     echo ""
     read -p "确认安装? [Y/n]: " confirm
     if [[ "$confirm" =~ ^[Nn] ]]; then
@@ -360,9 +443,16 @@ install_deps() {
 download_and_install() {
     info "下载 SBoard..."
     
-    # 构建下载 URL (直接使用 latest/download/)
+    # 构建下载 URL
     DOWNLOAD_FILE="${BINARY_NAME}_${OS}_${ARCH}.zip"
-    DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/latest/download/${DOWNLOAD_FILE}"
+    if [[ "$DEV_MODE" == "true" ]]; then
+        # 开发者模式：使用预发布版本
+        warning "开发者模式：使用预发布版本"
+        DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/download/pre-release/${DOWNLOAD_FILE}"
+    else
+        # 正常模式：使用最新正式版
+        DOWNLOAD_URL="${GH_PROXY}https://github.com/${GITHUB_REPO}/releases/latest/download/${DOWNLOAD_FILE}"
+    fi
     
     # 创建临时目录
     TMP_DIR=$(mktemp -d)
@@ -409,12 +499,20 @@ create_config() {
     # 生成随机 JWT 密钥
     JWT_SECRET=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
     
+    # 有域名时监听本地（配合 nginx 反代），无域名时监听所有接口
+    local listen_addr="0.0.0.0"
+    if [[ -n "$PANEL_DOMAIN" && "$PANEL_DOMAIN" != "localhost" ]]; then
+        listen_addr="127.0.0.1"
+    fi
+    
     cat > "${DATA_DIR}/config.yaml" << EOF
 # SBoard 配置文件
+# 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 
 server:
-  listen: "0.0.0.0:${LISTEN_PORT}"
+  listen: "${listen_addr}:${LISTEN_PORT}"
   debug: false
+  domain: "${PANEL_DOMAIN}"
 
 data:
   dir: "${DATA_DIR}"
@@ -448,7 +546,7 @@ create_systemd_service() {
     
     cat > "$SYSTEMD_SERVICE" << EOF
 [Unit]
-Description=SBoard - Proxy Management Panel
+Description=SBoard - Server Monitoring Panel
 Documentation=https://github.com/${GITHUB_REPO}
 After=network.target
 
@@ -475,17 +573,17 @@ EOF
 create_openrc_service() {
     info "创建 OpenRC 服务..."
     
-    cat > "$OPENRC_SERVICE" << 'EOF'
+    cat > "$OPENRC_SERVICE" << EOF
 #!/sbin/openrc-run
 
 name="SBoard Panel"
-description="SBoard - Proxy Management Panel"
+description="SBoard - Server Monitoring Panel"
 
-command="INSTALL_DIR_PLACEHOLDER/BINARY_NAME_PLACEHOLDER"
-command_args="-d DATA_DIR_PLACEHOLDER"
+command="${INSTALL_DIR}/${BINARY_NAME}"
+command_args="-d ${DATA_DIR}"
 command_background=true
-pidfile="/run/${RC_SVCNAME}.pid"
-directory="DATA_DIR_PLACEHOLDER"
+pidfile="/run/\${RC_SVCNAME}.pid"
+directory="${DATA_DIR}"
 
 depend() {
     need net
@@ -497,10 +595,6 @@ start_pre() {
 }
 EOF
 
-    sed -i "s|INSTALL_DIR_PLACEHOLDER|${INSTALL_DIR}|g" "$OPENRC_SERVICE"
-    sed -i "s|BINARY_NAME_PLACEHOLDER|${BINARY_NAME}|g" "$OPENRC_SERVICE"
-    sed -i "s|DATA_DIR_PLACEHOLDER|${DATA_DIR}|g" "$OPENRC_SERVICE"
-    
     chmod +x "$OPENRC_SERVICE"
     rc-update add ${SERVICE_NAME} default
     
@@ -511,80 +605,55 @@ EOF
 create_sysvinit_service() {
     info "创建 SysVinit 服务..."
     
-    cat > "$SYSVINIT_SERVICE" << 'EOF'
+    cat > "$SYSVINIT_SERVICE" << EOF
 #!/bin/bash
 ### BEGIN INIT INFO
-# Provides:          sboard
-# Required-Start:    $network $remote_fs $syslog
-# Required-Stop:     $network $remote_fs $syslog
+# Provides:          ${SERVICE_NAME}
+# Required-Start:    \$network \$remote_fs
+# Required-Stop:     \$network \$remote_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: SBoard Panel
-# Description:       SBoard - Proxy Management Panel
+# Description:       SBoard - Server Monitoring Panel
 ### END INIT INFO
 
-NAME="sboard"
-DAEMON="INSTALL_DIR_PLACEHOLDER/BINARY_NAME_PLACEHOLDER"
-DAEMON_ARGS="-d DATA_DIR_PLACEHOLDER"
-PIDFILE="/var/run/${NAME}.pid"
-LOGFILE="/var/log/${NAME}.log"
-WORKDIR="DATA_DIR_PLACEHOLDER"
+DAEMON="${INSTALL_DIR}/${BINARY_NAME}"
+DAEMON_ARGS="-d ${DATA_DIR}"
+PIDFILE="/var/run/${SERVICE_NAME}.pid"
+LOGFILE="/var/log/${SERVICE_NAME}.log"
 
-start() {
-    if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
-        echo "$NAME is already running"
-        return 1
-    fi
-    echo "Starting $NAME..."
-    cd "$WORKDIR"
-    nohup "$DAEMON" $DAEMON_ARGS >> "$LOGFILE" 2>&1 &
-    echo $! > "$PIDFILE"
-    echo "$NAME started"
-}
-
-stop() {
-    if [ ! -f "$PIDFILE" ]; then
-        echo "$NAME is not running"
-        return 1
-    fi
-    echo "Stopping $NAME..."
-    kill $(cat "$PIDFILE") 2>/dev/null
-    rm -f "$PIDFILE"
-    echo "$NAME stopped"
-}
-
-restart() {
-    stop
-    sleep 2
-    start
-}
-
-status() {
-    if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
-        echo "$NAME is running (PID: $(cat $PIDFILE))"
-    else
-        echo "$NAME is not running"
-        return 1
-    fi
-}
-
-case "$1" in
-    start)   start ;;
-    stop)    stop ;;
-    restart) restart ;;
-    status)  status ;;
+case "\$1" in
+    start)
+        echo "Starting ${SERVICE_NAME}..."
+        start-stop-daemon --start --background --make-pidfile --pidfile \$PIDFILE --exec \$DAEMON -- \$DAEMON_ARGS >> \$LOGFILE 2>&1
+        ;;
+    stop)
+        echo "Stopping ${SERVICE_NAME}..."
+        start-stop-daemon --stop --pidfile \$PIDFILE
+        rm -f \$PIDFILE
+        ;;
+    restart)
+        \$0 stop
+        sleep 1
+        \$0 start
+        ;;
+    status)
+        if [ -f \$PIDFILE ] && kill -0 \$(cat \$PIDFILE) 2>/dev/null; then
+            echo "${SERVICE_NAME} is running"
+        else
+            echo "${SERVICE_NAME} is not running"
+            exit 1
+        fi
+        ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status}"
+        echo "Usage: \$0 {start|stop|restart|status}"
         exit 1
         ;;
 esac
+
 exit 0
 EOF
 
-    sed -i "s|INSTALL_DIR_PLACEHOLDER|${INSTALL_DIR}|g" "$SYSVINIT_SERVICE"
-    sed -i "s|BINARY_NAME_PLACEHOLDER|${BINARY_NAME}|g" "$SYSVINIT_SERVICE"
-    sed -i "s|DATA_DIR_PLACEHOLDER|${DATA_DIR}|g" "$SYSVINIT_SERVICE"
-    
     chmod +x "$SYSVINIT_SERVICE"
     
     if command -v update-rc.d &> /dev/null; then
@@ -597,13 +666,8 @@ EOF
     success "SysVinit 服务创建完成"
 }
 
-# 创建服务 (仅 Linux)
+# 创建服务
 create_service() {
-    if [[ "$OS" != "linux" ]]; then
-        warning "非 Linux 系统，跳过服务创建"
-        return
-    fi
-    
     case "$INIT_SYSTEM" in
         systemd)
             create_systemd_service
@@ -614,661 +678,380 @@ create_service() {
         sysvinit)
             create_sysvinit_service
             ;;
-        *)
-            warning "未知的 Init 系统，跳过服务创建"
-            warning "请手动启动: ${INSTALL_DIR}/${BINARY_NAME} -d ${DATA_DIR}"
+        none)
+            warning "未检测到 Init 系统，跳过服务创建"
+            warning "请手动运行: ${INSTALL_DIR}/${BINARY_NAME} -d ${DATA_DIR}"
             ;;
     esac
 }
 
 # 启动服务
 start_service() {
-    if [[ "$OS" != "linux" ]]; then
-        warning "非 Linux 系统，请手动启动: ${INSTALL_DIR}/${BINARY_NAME} -d ${DATA_DIR}"
-        return
-    fi
-    
-    info "启动 SBoard..."
+    info "启动 SBoard 服务..."
     
     case "$INIT_SYSTEM" in
         systemd)
             systemctl start ${SERVICE_NAME}
-            sleep 2
-            if systemctl is-active --quiet ${SERVICE_NAME}; then
-                success "SBoard 启动成功"
-            else
-                error "SBoard 启动失败，请检查日志: journalctl -u ${SERVICE_NAME}"
-            fi
             ;;
         openrc)
             rc-service ${SERVICE_NAME} start
-            sleep 2
-            if rc-service ${SERVICE_NAME} status &>/dev/null; then
-                success "SBoard 启动成功"
-            else
-                error "SBoard 启动失败，请检查日志: /var/log/${SERVICE_NAME}.log"
-            fi
             ;;
         sysvinit)
-            "$SYSVINIT_SERVICE" start
-            sleep 2
-            if "$SYSVINIT_SERVICE" status &>/dev/null; then
-                success "SBoard 启动成功"
-            else
-                error "SBoard 启动失败，请检查日志: /var/log/${SERVICE_NAME}.log"
-            fi
+            ${SYSVINIT_SERVICE} start
             ;;
-        *)
-            warning "请手动启动: ${INSTALL_DIR}/${BINARY_NAME} -d ${DATA_DIR}"
-            ;;
-    esac
-}
-
-# 打印信息
-print_info() {
-    # 获取本机 IP
-    if command -v hostname &> /dev/null; then
-        LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
-    else
-        LOCAL_IP="localhost"
-    fi
-    
-    echo ""
-    echo "=========================================="
-    echo -e "${GREEN}SBoard 安装成功!${NC}"
-    echo "=========================================="
-    echo ""
-    echo "版本: ${LATEST_VERSION}"
-    echo "安装目录: ${INSTALL_DIR}"
-    echo "数据目录: ${DATA_DIR}"
-    echo "监听端口: ${LISTEN_PORT}"
-    echo "Init 系统: ${INIT_SYSTEM}"
-    echo ""
-    if [[ "$OS" == "linux" ]]; then
-        echo "管理命令:"
-        case "$INIT_SYSTEM" in
-            systemd)
-                echo "  启动: systemctl start ${SERVICE_NAME}"
-                echo "  停止: systemctl stop ${SERVICE_NAME}"
-                echo "  重启: systemctl restart ${SERVICE_NAME}"
-                echo "  状态: systemctl status ${SERVICE_NAME}"
-                echo "  日志: journalctl -u ${SERVICE_NAME} -f"
-                ;;
-            openrc)
-                echo "  启动: rc-service ${SERVICE_NAME} start"
-                echo "  停止: rc-service ${SERVICE_NAME} stop"
-                echo "  重启: rc-service ${SERVICE_NAME} restart"
-                echo "  状态: rc-service ${SERVICE_NAME} status"
-                echo "  日志: tail -f /var/log/${SERVICE_NAME}.log"
-                ;;
-            sysvinit)
-                echo "  启动: /etc/init.d/${SERVICE_NAME} start"
-                echo "  停止: /etc/init.d/${SERVICE_NAME} stop"
-                echo "  重启: /etc/init.d/${SERVICE_NAME} restart"
-                echo "  状态: /etc/init.d/${SERVICE_NAME} status"
-                echo "  日志: tail -f /var/log/${SERVICE_NAME}.log"
-                ;;
-        esac
-        echo ""
-    fi
-    echo -e "访问地址: ${CYAN}http://${LOCAL_IP}:${LISTEN_PORT}${NC}"
-    echo ""
-    echo -e "${YELLOW}登录信息:${NC}"
-    echo "  用户名: ${ADMIN_USER}"
-    echo "  密码:   ${ADMIN_PASS}"
-    echo ""
-    if [[ "$ADMIN_PASS" == "admin123" ]]; then
-        echo -e "${RED}警告: 您使用的是默认密码，请务必及时修改!${NC}"
-        echo ""
-    fi
-    echo -e "${GREEN}快捷命令:${NC} 输入 ${CYAN}sboard${NC} 可呼出管理菜单"
-    echo ""
-}
-
-# 创建快捷命令
-create_shortcut() {
-    info "创建快捷命令 sboard..."
-    
-    # 快捷命令脚本路径
-    SHORTCUT_PATH="/usr/local/bin/sboard"
-    
-    # 创建快捷命令脚本
-    cat > "$SHORTCUT_PATH" << 'SHORTCUTEOF'
-#!/bin/bash
-
-# SBoard 管理菜单
-# 快捷命令: sboard
-
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-# 配置
-INSTALL_DIR="/opt/sboard"
-DATA_DIR="/opt/sboard/data"
-SERVICE_NAME="sboard"
-
-# 检测 Init 系统
-detect_init_system() {
-    if command -v systemctl &> /dev/null && [[ -d /run/systemd/system ]]; then
-        echo "systemd"
-    elif command -v rc-service &> /dev/null; then
-        echo "openrc"
-    elif [[ -d /etc/init.d ]]; then
-        echo "sysvinit"
-    else
-        echo "unknown"
-    fi
-}
-
-INIT_SYSTEM=$(detect_init_system)
-
-# 获取服务状态
-get_status() {
-    case "$INIT_SYSTEM" in
-        systemd)
-            if systemctl is-active --quiet $SERVICE_NAME; then
-                echo -e "${GREEN}运行中${NC}"
-            else
-                echo -e "${RED}已停止${NC}"
-            fi
-            ;;
-        openrc)
-            if rc-service $SERVICE_NAME status &>/dev/null; then
-                echo -e "${GREEN}运行中${NC}"
-            else
-                echo -e "${RED}已停止${NC}"
-            fi
-            ;;
-        sysvinit)
-            if /etc/init.d/$SERVICE_NAME status &>/dev/null; then
-                echo -e "${GREEN}运行中${NC}"
-            else
-                echo -e "${RED}已停止${NC}"
-            fi
-            ;;
-        *)
-            echo -e "${YELLOW}未知${NC}"
-            ;;
-    esac
-}
-
-# 启动服务
-do_start() {
-    echo -e "${BLUE}启动 SBoard...${NC}"
-    case "$INIT_SYSTEM" in
-        systemd) systemctl start $SERVICE_NAME ;;
-        openrc) rc-service $SERVICE_NAME start ;;
-        sysvinit) /etc/init.d/$SERVICE_NAME start ;;
-    esac
-    sleep 1
-    echo -e "状态: $(get_status)"
-}
-
-# 停止服务
-do_stop() {
-    echo -e "${BLUE}停止 SBoard...${NC}"
-    case "$INIT_SYSTEM" in
-        systemd) systemctl stop $SERVICE_NAME ;;
-        openrc) rc-service $SERVICE_NAME stop ;;
-        sysvinit) /etc/init.d/$SERVICE_NAME stop ;;
-    esac
-    sleep 1
-    echo -e "状态: $(get_status)"
-}
-
-# 重启服务
-do_restart() {
-    echo -e "${BLUE}重启 SBoard...${NC}"
-    case "$INIT_SYSTEM" in
-        systemd) systemctl restart $SERVICE_NAME ;;
-        openrc) rc-service $SERVICE_NAME restart ;;
-        sysvinit) /etc/init.d/$SERVICE_NAME restart ;;
-    esac
-    sleep 1
-    echo -e "状态: $(get_status)"
-}
-
-# 查看日志
-do_logs() {
-    echo -e "${BLUE}查看日志 (Ctrl+C 退出)...${NC}"
-    case "$INIT_SYSTEM" in
-        systemd) journalctl -u $SERVICE_NAME -f ;;
-        *) tail -f /var/log/${SERVICE_NAME}.log ;;
-    esac
-}
-
-# 更新 SBoard
-do_update() {
-    echo -e "${BLUE}更新 SBoard...${NC}"
-    curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash -s update
-}
-
-# 卸载 SBoard
-do_uninstall() {
-    echo -e "${YELLOW}确定要卸载 SBoard 吗? [y/N]${NC}"
-    read -r confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash -s uninstall
-    fi
-}
-
-# 显示配置信息
-do_info() {
-    echo ""
-    echo -e "${CYAN}========== SBoard 信息 ==========${NC}"
-    if [[ -f "$INSTALL_DIR/sboard" ]]; then
-        VERSION=$($INSTALL_DIR/sboard -v 2>/dev/null || echo "未知")
-        echo -e "版本: ${GREEN}$VERSION${NC}"
-    fi
-    echo -e "状态: $(get_status)"
-    echo -e "安装目录: $INSTALL_DIR"
-    echo -e "数据目录: $DATA_DIR"
-    echo -e "Init 系统: $INIT_SYSTEM"
-    
-    # 获取本机 IP
-    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
-    echo -e "访问地址: ${GREEN}http://${LOCAL_IP}:8080${NC}"
-    echo ""
-}
-
-# 显示菜单
-show_menu() {
-    clear
-    echo -e "${CYAN}"
-    echo "  ____  ____                      _ "
-    echo " / ___|| __ )  ___   __ _ _ __ __| |"
-    echo " \\___ \\|  _ \\ / _ \\ / _\` | '__/ _\` |"
-    echo "  ___) | |_) | (_) | (_| | | | (_| |"
-    echo " |____/|____/ \\___/ \\__,_|_|  \\__,_|"
-    echo -e "${NC}"
-    echo -e "${CYAN}========== SBoard 管理面板 ==========${NC}"
-    echo ""
-    echo -e "  当前状态: $(get_status)"
-    echo ""
-    echo -e "  ${GREEN}1.${NC} 启动 SBoard"
-    echo -e "  ${GREEN}2.${NC} 停止 SBoard"
-    echo -e "  ${GREEN}3.${NC} 重启 SBoard"
-    echo -e "  ${GREEN}4.${NC} 查看日志"
-    echo -e "  ${GREEN}5.${NC} 查看信息"
-    echo -e "  ${YELLOW}6.${NC} 更新 SBoard"
-    echo -e "  ${RED}7.${NC} 卸载 SBoard"
-    echo -e "  ${BLUE}0.${NC} 退出"
-    echo ""
-    echo -e "${CYAN}=====================================${NC}"
-    echo ""
-}
-
-# 主循环
-main() {
-    while true; do
-        show_menu
-        read -p "请选择操作 [0-7]: " choice
-        echo ""
-        case "$choice" in
-            1) do_start; read -p "按回车键继续..." ;;
-            2) do_stop; read -p "按回车键继续..." ;;
-            3) do_restart; read -p "按回车键继续..." ;;
-            4) do_logs ;;
-            5) do_info; read -p "按回车键继续..." ;;
-            6) do_update; read -p "按回车键继续..." ;;
-            7) do_uninstall; break ;;
-            0) echo -e "${GREEN}再见!${NC}"; exit 0 ;;
-            *) echo -e "${RED}无效选择${NC}"; sleep 1 ;;
-        esac
-    done
-}
-
-main
-SHORTCUTEOF
-    
-    chmod +x "$SHORTCUT_PATH"
-    success "快捷命令创建完成，输入 'sboard' 即可呼出管理菜单"
-}
-
-# 删除快捷命令
-remove_shortcut() {
-    if [[ -f "/usr/local/bin/sboard" ]]; then
-        rm -f "/usr/local/bin/sboard"
-        info "已删除快捷命令"
-    fi
-}
-
-# 卸载
-uninstall() {
-    info "卸载 SBoard..."
-    
-    if [[ "$OS" == "linux" ]]; then
-        case "$INIT_SYSTEM" in
-            systemd)
-                systemctl stop ${SERVICE_NAME} 2>/dev/null || true
-                systemctl disable ${SERVICE_NAME} 2>/dev/null || true
-                rm -f "$SYSTEMD_SERVICE"
-                systemctl daemon-reload
-                ;;
-            openrc)
-                rc-service ${SERVICE_NAME} stop 2>/dev/null || true
-                rc-update del ${SERVICE_NAME} default 2>/dev/null || true
-                rm -f "$OPENRC_SERVICE"
-                ;;
-            sysvinit)
-                "$SYSVINIT_SERVICE" stop 2>/dev/null || true
-                if command -v update-rc.d &> /dev/null; then
-                    update-rc.d -f ${SERVICE_NAME} remove 2>/dev/null || true
-                elif command -v chkconfig &> /dev/null; then
-                    chkconfig --del ${SERVICE_NAME} 2>/dev/null || true
-                fi
-                rm -f "$SYSVINIT_SERVICE"
-                ;;
-            *)
-                pkill -f "${BINARY_NAME}" 2>/dev/null || true
-                ;;
-        esac
-    fi
-    
-    # 删除安装目录
-    rm -rf "${INSTALL_DIR}"
-    
-    # 删除快捷命令
-    remove_shortcut
-    
-    # 询问是否删除数据
-    read -p "是否删除数据目录 (${DATA_DIR})? [y/N]: " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -rf "${DATA_DIR}"
-    fi
-    
-    success "SBoard 卸载完成"
-}
-
-# 更新
-update() {
-    info "更新 SBoard..."
-    
-    if [[ "$OS" == "linux" ]]; then
-        case "$INIT_SYSTEM" in
-            systemd)
-                systemctl stop ${SERVICE_NAME} 2>/dev/null || true
-                ;;
-            openrc)
-                rc-service ${SERVICE_NAME} stop 2>/dev/null || true
-                ;;
-            sysvinit)
-                "$SYSVINIT_SERVICE" stop 2>/dev/null || true
-                ;;
-        esac
-    fi
-    
-    download_and_install
-    
-    if [[ "$OS" == "linux" ]]; then
-        case "$INIT_SYSTEM" in
-            systemd)
-                systemctl start ${SERVICE_NAME}
-                ;;
-            openrc)
-                rc-service ${SERVICE_NAME} start
-                ;;
-            sysvinit)
-                "$SYSVINIT_SERVICE" start
-                ;;
-        esac
-    fi
-    
-    success "SBoard 更新完成"
-}
-
-# 交互式主菜单
-show_menu() {
-    echo ""
-    echo -e "${CYAN}========================================${NC}"
-    echo -e "${CYAN}       SBoard 管理菜单${NC}"
-    echo -e "${CYAN}========================================${NC}"
-    echo ""
-    echo -e "  ${GREEN}1.${NC} 安装 SBoard"
-    echo -e "  ${GREEN}2.${NC} 更新 SBoard"
-    echo -e "  ${GREEN}3.${NC} 卸载 SBoard"
-    echo -e "  ${GREEN}4.${NC} 查看状态"
-    echo -e "  ${GREEN}5.${NC} 启动服务"
-    echo -e "  ${GREEN}6.${NC} 停止服务"
-    echo -e "  ${GREEN}7.${NC} 重启服务"
-    echo -e "  ${GREEN}8.${NC} 查看日志"
-    echo -e "  ${GREEN}0.${NC} 退出"
-    echo ""
-    read -p "请选择操作 [0-8]: " choice
-    
-    case "$choice" in
-        1)
-            COMMAND="install"
-            ;;
-        2)
-            COMMAND="update"
-            ;;
-        3)
-            COMMAND="uninstall"
-            ;;
-        4)
-            show_status
-            show_menu
-            return
-            ;;
-        5)
-            start_service_only
-            show_menu
-            return
-            ;;
-        6)
-            stop_service_only
-            show_menu
-            return
-            ;;
-        7)
-            restart_service_only
-            show_menu
-            return
-            ;;
-        8)
-            show_logs
-            show_menu
-            return
-            ;;
-        0|q|Q)
-            echo "再见!"
-            exit 0
-            ;;
-        *)
-            warning "无效选择，请重新选择"
-            show_menu
+        none)
+            warning "请手动启动服务"
             return
             ;;
     esac
-}
-
-# 查看状态
-show_status() {
-    echo ""
-    info "SBoard 状态:"
     
-    # 检查安装
-    if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
-        echo -e "  安装状态: ${GREEN}已安装${NC}"
-        echo "  安装路径: ${INSTALL_DIR}"
-    else
-        echo -e "  安装状态: ${RED}未安装${NC}"
-        return
-    fi
-    
-    # 检查服务状态
-    case "$INIT_SYSTEM" in
-        systemd)
-            if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-                echo -e "  服务状态: ${GREEN}运行中${NC}"
-            else
-                echo -e "  服务状态: ${RED}已停止${NC}"
-            fi
-            ;;
-        openrc)
-            if rc-service "$SERVICE_NAME" status &>/dev/null; then
-                echo -e "  服务状态: ${GREEN}运行中${NC}"
-            else
-                echo -e "  服务状态: ${RED}已停止${NC}"
-            fi
-            ;;
-        *)
-            echo -e "  服务状态: ${YELLOW}未知${NC}"
-            ;;
-    esac
-    
-    # 显示端口
-    if command -v ss &>/dev/null; then
-        local ports=$(ss -tlnp 2>/dev/null | grep "$BINARY_NAME" | awk '{print $4}' | grep -oE '[0-9]+$' | head -1)
-        if [[ -n "$ports" ]]; then
-            echo "  监听端口: $ports"
-        fi
-    fi
-    echo ""
-}
-
-# 启动服务
-start_service_only() {
-    info "启动 SBoard 服务..."
-    case "$INIT_SYSTEM" in
-        systemd)
-            systemctl start "$SERVICE_NAME"
-            ;;
-        openrc)
-            rc-service "$SERVICE_NAME" start
-            ;;
-        sysvinit)
-            "$SYSVINIT_SERVICE" start
-            ;;
-        *)
-            error "不支持的 Init 系统"
-            ;;
-    esac
     success "服务已启动"
 }
 
 # 停止服务
-stop_service_only() {
+stop_service() {
     info "停止 SBoard 服务..."
+    
     case "$INIT_SYSTEM" in
         systemd)
-            systemctl stop "$SERVICE_NAME"
+            systemctl stop ${SERVICE_NAME} 2>/dev/null || true
             ;;
         openrc)
-            rc-service "$SERVICE_NAME" stop
+            rc-service ${SERVICE_NAME} stop 2>/dev/null || true
             ;;
         sysvinit)
-            "$SYSVINIT_SERVICE" stop
-            ;;
-        *)
-            error "不支持的 Init 系统"
+            ${SYSVINIT_SERVICE} stop 2>/dev/null || true
             ;;
     esac
-    success "服务已停止"
 }
 
-# 重启服务
-restart_service_only() {
-    info "重启 SBoard 服务..."
-    case "$INIT_SYSTEM" in
-        systemd)
-            systemctl restart "$SERVICE_NAME"
-            ;;
-        openrc)
-            rc-service "$SERVICE_NAME" restart
-            ;;
-        sysvinit)
-            "$SYSVINIT_SERVICE" restart
-            ;;
-        *)
-            error "不支持的 Init 系统"
-            ;;
-    esac
-    success "服务已重启"
-}
-
-# 查看日志
-show_logs() {
-    info "最近 50 行日志:"
+# 显示安装完成信息
+show_install_info() {
     echo ""
-    case "$INIT_SYSTEM" in
-        systemd)
-            journalctl -u "$SERVICE_NAME" -n 50 --no-pager
-            ;;
-        *)
-            if [[ -f "${DATA_DIR}/sboard.log" ]]; then
-                tail -n 50 "${DATA_DIR}/sboard.log"
-            else
-                warning "日志文件不存在"
-            fi
-            ;;
-    esac
+    echo -e "${GREEN}==========================================${NC}"
+    echo -e "${GREEN}        SBoard 安装完成!${NC}"
+    echo -e "${GREEN}==========================================${NC}"
     echo ""
-}
-
-# 主函数
-main() {
-    # 解析命令行参数
-    parse_args "$@"
+    echo -e "  安装路径: ${CYAN}${INSTALL_DIR}${NC}"
+    echo -e "  数据目录: ${CYAN}${DATA_DIR}${NC}"
+    echo -e "  配置文件: ${CYAN}${DATA_DIR}/config.yaml${NC}"
+    echo ""
+    echo -e "  面板域名: ${CYAN}${PANEL_DOMAIN}${NC}"
+    echo -e "  监听端口: ${CYAN}${LISTEN_PORT}${NC}"
     
-    echo ""
-    echo -e "${CYAN}==========================================${NC}"
-    echo -e "${CYAN}       SBoard 一键安装脚本${NC}"
-    echo -e "${CYAN}==========================================${NC}"
-    echo ""
-    
-    # 如果是菜单模式或者直接运行（终端模式且无参数）
-    if [[ "$COMMAND" == "menu" ]]; then
-        check_root
-        detect_os
-        detect_init_system
-        show_menu
+    if [[ -n "$PANEL_DOMAIN" && "$PANEL_DOMAIN" != "localhost" ]]; then
+        echo -e "  监听地址: ${CYAN}127.0.0.1:${LISTEN_PORT}${NC} (仅本地)"
+        echo -e "  访问地址: ${CYAN}https://${PANEL_DOMAIN}${NC} (需配置反向代理)"
+    else
+        echo -e "  监听地址: ${CYAN}0.0.0.0:${LISTEN_PORT}${NC}"
+        echo -e "  访问地址: ${CYAN}http://服务器IP:${LISTEN_PORT}${NC}"
     fi
+    echo ""
+    echo -e "${YELLOW}==========================================${NC}"
+    echo -e "${YELLOW}        管理员账户信息 (请牢记!)${NC}"
+    echo -e "${YELLOW}==========================================${NC}"
+    echo -e "  用户名: ${CYAN}${ADMIN_USER}${NC}"
+    echo -e "  密码:   ${CYAN}${ADMIN_PASS}${NC}"
+    echo ""
+    echo -e "${RED}  重要提示:${NC}"
+    echo -e "  - 管理员账户只能初始化一次，无法通过命令行修改"
+    echo -e "  - 登录后可在 Web 界面修改密码"
+    echo -e "  - 如忘记密码，需删除数据库文件后重新安装"
+    echo ""
+    
+    if [[ "$INIT_SYSTEM" != "none" ]]; then
+        echo -e "  服务管理命令:"
+        case "$INIT_SYSTEM" in
+            systemd)
+                echo -e "    启动: ${YELLOW}systemctl start ${SERVICE_NAME}${NC}"
+                echo -e "    停止: ${YELLOW}systemctl stop ${SERVICE_NAME}${NC}"
+                echo -e "    重启: ${YELLOW}systemctl restart ${SERVICE_NAME}${NC}"
+                echo -e "    状态: ${YELLOW}systemctl status ${SERVICE_NAME}${NC}"
+                ;;
+            openrc)
+                echo -e "    启动: ${YELLOW}rc-service ${SERVICE_NAME} start${NC}"
+                echo -e "    停止: ${YELLOW}rc-service ${SERVICE_NAME} stop${NC}"
+                echo -e "    重启: ${YELLOW}rc-service ${SERVICE_NAME} restart${NC}"
+                echo -e "    状态: ${YELLOW}rc-service ${SERVICE_NAME} status${NC}"
+                ;;
+            sysvinit)
+                echo -e "    启动: ${YELLOW}${SYSVINIT_SERVICE} start${NC}"
+                echo -e "    停止: ${YELLOW}${SYSVINIT_SERVICE} stop${NC}"
+                echo -e "    重启: ${YELLOW}${SYSVINIT_SERVICE} restart${NC}"
+                echo -e "    状态: ${YELLOW}${SYSVINIT_SERVICE} status${NC}"
+                ;;
+        esac
+    fi
+    echo ""
+    if [[ -n "$PANEL_DOMAIN" && "$PANEL_DOMAIN" != "localhost" ]]; then
+        echo -e "${YELLOW}==========================================${NC}"
+        echo -e "${YELLOW}        Nginx 反向代理配置示例${NC}"
+        echo -e "${YELLOW}==========================================${NC}"
+        echo -e "server {"
+        echo -e "    listen 80;"
+        echo -e "    listen 443 ssl http2;"
+        echo -e "    server_name ${PANEL_DOMAIN};"
+        echo -e "    "
+        echo -e "    location / {"
+        echo -e "        proxy_pass http://127.0.0.1:${LISTEN_PORT};"
+        echo -e "        proxy_set_header Host \$host;"
+        echo -e "        proxy_set_header X-Real-IP \$remote_addr;"
+        echo -e "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;"
+        echo -e "        proxy_set_header X-Forwarded-Proto \$scheme;"
+        echo -e "        proxy_http_version 1.1;"
+        echo -e "        proxy_set_header Upgrade \$http_upgrade;"
+        echo -e "        proxy_set_header Connection \"upgrade\";"
+        echo -e "    }"
+        echo -e "}"
+        echo ""
+        echo -e "${YELLOW}提示: 前端会验证访问域名是否与配置的域名一致${NC}"
+        echo -e "${YELLOW}      其他域名访问将显示警告${NC}"
+    else
+        echo -e "${YELLOW}提示: 请确保防火墙已开放端口 ${LISTEN_PORT}${NC}"
+    fi
+    echo ""
+}
+
+# 安装流程
+do_install() {
+    echo ""
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${CYAN}        SBoard 面板安装${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+    echo ""
+    
+    check_root
+    detect_os
+    detect_arch
+    detect_init_system
+    
+    # 交互式配置
+    interactive_config
+    
+    # 检查是否已安装
+    if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
+        warning "检测到已安装 SBoard"
+        if [[ -t 0 ]]; then
+            read -p "是否覆盖安装? [y/N]: " confirm
+            if [[ ! "$confirm" =~ ^[Yy] ]]; then
+                echo "安装已取消"
+                exit 0
+            fi
+        fi
+        stop_service
+    fi
+    
+    install_deps
+    download_and_install
+    create_config
+    init_admin
+    create_service
+    start_service
+    
+    show_install_info
+}
+
+# 更新流程
+do_update() {
+    echo ""
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${CYAN}        SBoard 面板更新${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+    echo ""
+    
+    check_root
+    
+    # 检查是否已安装
+    if [[ ! -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
+        error "未检测到 SBoard 安装，请先安装"
+    fi
+    
+    # 读取现有配置
+    if [[ -f "${DATA_DIR}/config.yaml" ]]; then
+        info "读取现有配置..."
+        # 从配置文件读取域名用于判断是否使用预发布版本
+        local config_domain=$(grep -E "^\s*domain:" "${DATA_DIR}/config.yaml" 2>/dev/null | head -1 | sed 's/.*domain:\s*"\?\([^"]*\)"\?.*/\1/')
+        if [[ -n "$config_domain" ]]; then
+            PANEL_DOMAIN="$config_domain"
+            check_dev_domain "$config_domain"
+        fi
+    fi
+    
+    detect_os
+    detect_arch
+    detect_init_system
+    
+    stop_service
+    
+    # 备份当前版本
+    if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
+        mv "${INSTALL_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}.bak"
+    fi
+    
+    install_deps
+    download_and_install
+    
+    start_service
+    
+    # 删除备份
+    rm -f "${INSTALL_DIR}/${BINARY_NAME}.bak"
+    
+    echo ""
+    success "SBoard 更新完成!"
+    echo ""
+}
+
+# 卸载流程
+do_uninstall() {
+    echo ""
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${CYAN}        SBoard 面板卸载${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+    echo ""
+    
+    check_root
+    detect_init_system
+    
+    # 确认
+    if [[ -t 0 ]]; then
+        echo -e "${RED}警告: 此操作将删除 SBoard 及所有数据!${NC}"
+        read -p "确认卸载? [y/N]: " confirm
+        if [[ ! "$confirm" =~ ^[Yy] ]]; then
+            echo "卸载已取消"
+            exit 0
+        fi
+    fi
+    
+    # 停止服务
+    stop_service
+    
+    # 删除服务
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl disable ${SERVICE_NAME} 2>/dev/null || true
+            rm -f "$SYSTEMD_SERVICE"
+            systemctl daemon-reload
+            ;;
+        openrc)
+            rc-update del ${SERVICE_NAME} default 2>/dev/null || true
+            rm -f "$OPENRC_SERVICE"
+            ;;
+        sysvinit)
+            if command -v update-rc.d &> /dev/null; then
+                update-rc.d -f ${SERVICE_NAME} remove 2>/dev/null || true
+            elif command -v chkconfig &> /dev/null; then
+                chkconfig --del ${SERVICE_NAME} 2>/dev/null || true
+            fi
+            rm -f "$SYSVINIT_SERVICE"
+            ;;
+    esac
+    
+    # 删除文件
+    rm -rf "$INSTALL_DIR"
+    
+    echo ""
+    success "SBoard 卸载完成!"
+    echo ""
+}
+
+# 交互式菜单
+show_menu() {
+    while true; do
+        echo ""
+        echo -e "${CYAN}==========================================${NC}"
+        echo -e "${CYAN}        SBoard 面板管理脚本${NC}"
+        echo -e "${CYAN}==========================================${NC}"
+        echo ""
+        echo "  1) 安装 SBoard"
+        echo "  2) 更新 SBoard"
+        echo "  3) 卸载 SBoard"
+        echo "  4) 查看状态"
+        echo "  5) 重启服务"
+        echo "  0) 退出"
+        echo ""
+        read -p "请选择 [0-5]: " choice
+        
+        case $choice in
+            1)
+                do_install
+                ;;
+            2)
+                do_update
+                ;;
+            3)
+                do_uninstall
+                break
+                ;;
+            4)
+                detect_init_system
+                case "$INIT_SYSTEM" in
+                    systemd)
+                        systemctl status ${SERVICE_NAME}
+                        ;;
+                    openrc)
+                        rc-service ${SERVICE_NAME} status
+                        ;;
+                    sysvinit)
+                        ${SYSVINIT_SERVICE} status
+                        ;;
+                    *)
+                        warning "无法获取服务状态"
+                        ;;
+                esac
+                ;;
+            5)
+                detect_init_system
+                case "$INIT_SYSTEM" in
+                    systemd)
+                        systemctl restart ${SERVICE_NAME}
+                        success "服务已重启"
+                        ;;
+                    openrc)
+                        rc-service ${SERVICE_NAME} restart
+                        success "服务已重启"
+                        ;;
+                    sysvinit)
+                        ${SYSVINIT_SERVICE} restart
+                        success "服务已重启"
+                        ;;
+                    *)
+                        warning "无法重启服务"
+                        ;;
+                esac
+                ;;
+            0)
+                echo "再见!"
+                exit 0
+                ;;
+            *)
+                warning "无效选择"
+                ;;
+        esac
+    done
+}
+
+# 主入口
+main() {
+    parse_args "$@"
     
     case "$COMMAND" in
         install)
-            check_root
-            detect_os
-            detect_arch
-            detect_init_system
-            interactive_config
-            install_deps
-            download_and_install
-            create_config
-            init_admin
-            create_service
-            create_shortcut
-            start_service
-            print_info
+            do_install
             ;;
         update)
-            check_root
-            detect_os
-            detect_arch
-            detect_init_system
-            install_deps
-            update
+            do_update
             ;;
         uninstall)
-            check_root
-            detect_os
-            detect_init_system
-            uninstall
+            do_uninstall
             ;;
         menu)
-            # 已在上面处理
+            show_menu
             ;;
         *)
-            error "未知命令: $COMMAND"
+            show_help
             ;;
     esac
 }
 
+# 执行
 main "$@"

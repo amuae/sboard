@@ -34,6 +34,8 @@ $INSTALL_DIR = "C:\sboard\agent"
 $SERVICE_NAME = "sboard-agent"
 $BINARY_NAME = "sboard-agent.exe"
 $CONFIG_FILE = "agent.json"
+$DEV_DOMAIN_HASH = "9de17c968ada26abec13fc5fc264ddfa"
+$script:DEV_MODE = $false
 
 # GitHub 加速配置 (国内加速)
 $GH_PROXY = "https://ghfast.top/"
@@ -82,6 +84,33 @@ function Show-Help {
 function Test-Administrator {
     $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# 从面板 URL 提取域名并检查是否为开发者域名
+function Test-DevDomainFromUrl {
+    param([string]$Url)
+    
+    if ([string]::IsNullOrEmpty($Url)) {
+        return
+    }
+    
+    # 提取域名 (去掉协议和端口)
+    $panelDomain = $Url -replace '^https?://', '' -replace ':[0-9]+.*', '' -replace '/.*', ''
+    
+    if ([string]::IsNullOrEmpty($panelDomain)) {
+        return
+    }
+    
+    # 计算域名的 MD5
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($panelDomain)
+    $hash = $md5.ComputeHash($bytes)
+    $domainHash = [BitConverter]::ToString($hash).Replace("-", "").ToLower()
+    
+    # 检查是否匹配开发者域名
+    if ($domainHash -eq $DEV_DOMAIN_HASH) {
+        $script:DEV_MODE = $true
+    }
 }
 
 # 检测架构
@@ -145,9 +174,14 @@ function Download-Agent {
         New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
     }
     
-    # 构建下载 URL (直接使用 latest/download/)
+    # 构建下载 URL
     $downloadFile = "${BINARY_NAME.Replace('.exe', '')}_windows_${Arch}.zip"
-    $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/latest/download/$downloadFile"
+    if ($script:DEV_MODE) {
+        Write-Warning "开发者模式：使用预发布版本"
+        $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/download/pre-release/$downloadFile"
+    } else {
+        $downloadUrl = "${GH_PROXY}https://github.com/$GITHUB_REPO/releases/latest/download/$downloadFile"
+    }
     $tempZip = Join-Path $env:TEMP $downloadFile
     
     Write-Info "下载: $downloadUrl"
@@ -317,6 +351,9 @@ function Main {
     
     # 移除末尾斜杠
     $PanelUrl = $PanelUrl.TrimEnd('/')
+    
+    # 从面板 URL 提取域名并检查是否为开发者域名
+    Test-DevDomainFromUrl -Url $PanelUrl
     
     # 检测架构
     $arch = Get-Architecture
