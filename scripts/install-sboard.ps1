@@ -682,35 +682,86 @@ function Show-InstallStatus {
 function Get-InteractiveConfig {
     Write-Host ""
     Write-Host "==========================================" -ForegroundColor Cyan
-    Write-Host "         SBoard 安装配置" -ForegroundColor Cyan
+    Write-Host "        SBoard 面板安装向导" -ForegroundColor Cyan
     Write-Host "==========================================" -ForegroundColor Cyan
     Write-Host ""
     
-    # 安装路径
+    # 步骤 1: 安装路径
+    Write-Host "[1/5] 设置安装路径" -ForegroundColor Yellow
     $input = Read-Host "安装路径 [$InstallDir]"
     if ($input) { $script:InstallDir = $input }
-    
-    # 监听端口
-    $input = Read-Host "监听端口 [$Port]"
-    if ($input) { $script:Port = [int]$input }
-    
-    # 管理员用户名
-    $defaultUser = if ($User) { $User } else { "admin" }
-    $input = Read-Host "管理员用户名 [$defaultUser]"
-    if ($input) { $script:User = $input } else { $script:User = $defaultUser }
-    
-    # 管理员密码
-    $defaultPass = if ($Pass) { $Pass } else { "admin123" }
-    $input = Read-Host "管理员密码 [$defaultPass]"
-    if ($input) { $script:Pass = $input } else { $script:Pass = $defaultPass }
-    
-    # 确认
     Write-Host ""
-    Write-Host "请确认安装配置:" -ForegroundColor Yellow
-    Write-Host "  安装路径: $InstallDir"
-    Write-Host "  监听端口: $Port"
-    Write-Host "  管理员: $User"
-    Write-Host "  密码: ******"
+    
+    # 步骤 2: 面板入口域名
+    Write-Host "[2/5] 设置面板入口域名" -ForegroundColor Yellow
+    Write-Host "  提示: 用于访问面板的域名，如 panel.example.com" -ForegroundColor Blue
+    while ([string]::IsNullOrEmpty($Domain)) {
+        $script:Domain = Read-Host "面板域名"
+        if ([string]::IsNullOrEmpty($Domain)) {
+            Write-Host "  域名不能为空，请重新输入" -ForegroundColor Red
+        }
+    }
+    Test-DevDomain -DomainName $Domain
+    Write-Host ""
+    
+    # 步骤 3: 监听端口
+    Write-Host "[3/5] 设置监听端口" -ForegroundColor Yellow
+    Write-Host "  提示: 直接回车将随机生成 5000-65535 之间的端口" -ForegroundColor Blue
+    $input = Read-Host "监听端口 [随机]"
+    if ($input) { 
+        $script:Port = [int]$input 
+    } else {
+        $script:Port = Get-Random -Minimum 5000 -Maximum 65535
+        Write-Info "随机生成端口: $Port"
+    }
+    Write-Host ""
+    
+    # 步骤 4: 管理员用户名
+    Write-Host "[4/5] 设置管理员账户" -ForegroundColor Yellow
+    while ([string]::IsNullOrEmpty($User)) {
+        $script:User = Read-Host "管理员用户名"
+        if ([string]::IsNullOrEmpty($User)) {
+            Write-Host "  用户名不能为空，请重新输入" -ForegroundColor Red
+        }
+    }
+    Write-Host ""
+    
+    # 步骤 5: 管理员密码
+    Write-Host "[5/5] 设置管理员密码" -ForegroundColor Yellow
+    while ($true) {
+        $script:Pass = Read-Host "管理员密码"
+        if ([string]::IsNullOrEmpty($Pass)) {
+            Write-Host "  密码不能为空，请重新输入" -ForegroundColor Red
+            continue
+        }
+        if ($Pass.Length -lt 6) {
+            Write-Host "  密码长度至少 6 位，请重新输入" -ForegroundColor Red
+            $script:Pass = $null
+            continue
+        }
+        $confirmPass = Read-Host "确认密码"
+        if ($Pass -ne $confirmPass) {
+            Write-Host "  两次输入的密码不一致，请重新输入" -ForegroundColor Red
+            $script:Pass = $null
+            continue
+        }
+        break
+    }
+    Write-Host ""
+    
+    # 确认配置
+    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Host "          请确认安装配置" -ForegroundColor Cyan
+    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  安装路径: " -NoNewline; Write-Host "$InstallDir" -ForegroundColor Green
+    Write-Host "  面板域名: " -NoNewline; Write-Host "$Domain" -ForegroundColor Green
+    Write-Host "  监听端口: " -NoNewline; Write-Host "$Port" -ForegroundColor Green
+    Write-Host "  管理员:   " -NoNewline; Write-Host "$User" -ForegroundColor Green
+    Write-Host "  密码:     " -NoNewline; Write-Host "******" -ForegroundColor Green
+    if ($script:DEV_MODE) {
+        Write-Host "  版本:     " -NoNewline; Write-Host "预发布版本" -ForegroundColor Yellow
+    }
     Write-Host ""
     $confirm = Read-Host "确认安装? [Y/n]"
     if ($confirm -match "^[Nn]") {
