@@ -15,11 +15,12 @@ SCRIPT_URL="${GH_PROXY}https://raw.githubusercontent.com/amuae/sboard/main/scrip
 # 检测操作系统
 case "$(uname -s 2>/dev/null)" in
     Linux|linux|Darwin|darwin)
-        # Linux/macOS: 下载脚本到临时文件后执行（保持交互能力）
+        # Linux/macOS: 下载脚本到临时文件后执行
         TMP_SCRIPT=$(mktemp)
         curl -fsSL "$SCRIPT_URL" -o "$TMP_SCRIPT"
         chmod +x "$TMP_SCRIPT"
-        bash "$TMP_SCRIPT"
+        # 重定向 stdin 到终端，保持交互能力
+        bash "$TMP_SCRIPT" </dev/tty
         rm -f "$TMP_SCRIPT"
         ;;
     MINGW*|MSYS*|CYGWIN*)
