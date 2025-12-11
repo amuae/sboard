@@ -267,18 +267,22 @@ jobs:
             echo "prerelease=false" >> $GITHUB_OUTPUT
             echo "name=$VERSION" >> $GITHUB_OUTPUT
           else
-            # 预发布版：获取最新 release 版本号 + 随机字符
-            LATEST_TAG=$(gh release list --limit 1 --exclude-pre-releases --json tagName -q '.[0].tagName' 2>/dev/null || echo "v1.0.0")
-            if [ -z "$LATEST_TAG" ]; then
-              LATEST_TAG="v1.0.0"
-            fi
-            RANDOM_STR=$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 10)
-            VERSION="${LATEST_TAG}-pre.${RANDOM_STR}"
+            # 预发布版：固定使用 pre-release tag，每次覆盖
+            VERSION="pre-release"
             echo "version=$VERSION" >> $GITHUB_OUTPUT
             echo "prerelease=true" >> $GITHUB_OUTPUT
-            echo "name=$VERSION (Pre-release)" >> $GITHUB_OUTPUT
+            echo "name=Pre-release (Latest)" >> $GITHUB_OUTPUT
           fi
           echo "确定版本号: $VERSION"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete existing pre-release
+        if: ${{ github.event.inputs.prerelease == 'true' }}
+        run: |
+          # 删除旧的 pre-release（如果存在）
+          gh release delete pre-release --yes 2>/dev/null || true
+          git push origin :refs/tags/pre-release 2>/dev/null || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
