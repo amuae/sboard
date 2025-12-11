@@ -193,9 +193,9 @@ func (s *Server) handleSublink(c *gin.Context) {
 		return
 	}
 
-	// 获取服务器
+	// 获取服务器（按排序顺序）
 	var servers []database.Server
-	query := database.DB.Where("enabled = ?", 1)
+	query := database.DB.Where("enabled = ?", 1).Order("sort_order ASC, id ASC")
 	if serverIDStr != "" {
 		query = query.Where("id = ?", serverIDStr)
 	}
