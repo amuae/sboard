@@ -3,15 +3,20 @@ name: Build and Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: '版本号 (如 v1.0.0)'
-        required: true
-        default: 'v1.0.0'
       release:
-        description: '是否发布 Release'
-        required: true
+        description: '发布正式版 Release'
+        required: false
         type: boolean
         default: false
+      prerelease:
+        description: '发布预发布版 Pre-release'
+        required: false
+        type: boolean
+        default: false
+      version:
+        description: '版本号 (仅正式版需要填写，如 v1.0.6)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -108,7 +113,11 @@ jobs:
           GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
         run: |
-          VERSION=${{ github.event.inputs.version }}
+          # 使用传入的版本号或默认 dev
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="dev"
+          fi
           LDFLAGS="-s -w -X main.Version=${VERSION}"
           
           if [ "$GOOS" = "windows" ]; then
@@ -199,7 +208,11 @@ jobs:
           GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
         run: |
-          VERSION=${{ github.event.inputs.version }}
+          # 使用传入的版本号或默认 dev
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="dev"
+          fi
           LDFLAGS="-s -w -X main.Version=${VERSION}"
           
           if [ "$GOOS" = "windows" ]; then
@@ -232,11 +245,42 @@ jobs:
     name: Create Release
     needs: [build-sboard, build-agent]
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.release == 'true' }}
+    if: ${{ github.event.inputs.release == 'true' || github.event.inputs.prerelease == 'true' }}
     
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event.inputs.release }}" = "true" ]; then
+            # 正式版：使用用户输入的版本号
+            VERSION="${{ github.event.inputs.version }}"
+            if [ -z "$VERSION" ]; then
+              echo "错误：发布正式版需要填写版本号"
+              exit 1
+            fi
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "name=$VERSION" >> $GITHUB_OUTPUT
+          else
+            # 预发布版：获取最新 release 版本号 + 随机字符
+            LATEST_TAG=$(gh release list --limit 1 --exclude-pre-releases --json tagName -q '.[0].tagName' 2>/dev/null || echo "v1.0.0")
+            if [ -z "$LATEST_TAG" ]; then
+              LATEST_TAG="v1.0.0"
+            fi
+            RANDOM_STR=$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 10)
+            VERSION="${LATEST_TAG}-pre.${RANDOM_STR}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "name=$VERSION (Pre-release)" >> $GITHUB_OUTPUT
+          fi
+          echo "确定版本号: $VERSION"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -257,45 +301,45 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: ${{ github.event.inputs.version }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           files: |
             artifacts/*.zip
             artifacts/checksums.txt
           body: |
-            ## SBoard ${{ github.event.inputs.version }}
+            ## SBoard ${{ steps.version.outputs.version }}
             
             ### 下载
             
             **面板 (sboard)**
             | 平台 | 架构 | 下载 |
             |------|------|------|
-            | Linux | amd64 | [sboard_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_amd64.zip) |
-            | Linux | 386 | [sboard_linux_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_386.zip) |
-            | Linux | arm64 | [sboard_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_arm64.zip) |
-            | Linux | armv7 | [sboard_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_armv7.zip) |
-            | Linux | armv6 | [sboard_linux_armv6.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_linux_armv6.zip) |
-            | Windows | amd64 | [sboard_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_amd64.zip) |
-            | Windows | arm64 | [sboard_windows_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_arm64.zip) |
-            | Windows | 386 | [sboard_windows_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_windows_386.zip) |
-            | macOS | amd64 | [sboard_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_amd64.zip) |
-            | macOS | arm64 | [sboard_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard_darwin_arm64.zip) |
+            | Linux | amd64 | [sboard_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_linux_amd64.zip) |
+            | Linux | 386 | [sboard_linux_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_linux_386.zip) |
+            | Linux | arm64 | [sboard_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_linux_arm64.zip) |
+            | Linux | armv7 | [sboard_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_linux_armv7.zip) |
+            | Linux | armv6 | [sboard_linux_armv6.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_linux_armv6.zip) |
+            | Windows | amd64 | [sboard_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_windows_amd64.zip) |
+            | Windows | arm64 | [sboard_windows_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_windows_arm64.zip) |
+            | Windows | 386 | [sboard_windows_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_windows_386.zip) |
+            | macOS | amd64 | [sboard_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_darwin_amd64.zip) |
+            | macOS | arm64 | [sboard_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard_darwin_arm64.zip) |
             
             **Agent (sboard-agent)**
             | 平台 | 架构 | 下载 |
             |------|------|------|
-            | Linux | amd64 | [sboard-agent_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_amd64.zip) |
-            | Linux | 386 | [sboard-agent_linux_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_386.zip) |
-            | Linux | arm64 | [sboard-agent_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_arm64.zip) |
-            | Linux | armv7 | [sboard-agent_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_armv7.zip) |
-            | Linux | armv6 | [sboard-agent_linux_armv6.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_linux_armv6.zip) |
-            | Windows | amd64 | [sboard-agent_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_amd64.zip) |
-            | Windows | arm64 | [sboard-agent_windows_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_arm64.zip) |
-            | Windows | 386 | [sboard-agent_windows_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_windows_386.zip) |
-            | macOS | amd64 | [sboard-agent_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_amd64.zip) |
-            | macOS | arm64 | [sboard-agent_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/sboard-agent_darwin_arm64.zip) |
+            | Linux | amd64 | [sboard-agent_linux_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_linux_amd64.zip) |
+            | Linux | 386 | [sboard-agent_linux_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_linux_386.zip) |
+            | Linux | arm64 | [sboard-agent_linux_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_linux_arm64.zip) |
+            | Linux | armv7 | [sboard-agent_linux_armv7.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_linux_armv7.zip) |
+            | Linux | armv6 | [sboard-agent_linux_armv6.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_linux_armv6.zip) |
+            | Windows | amd64 | [sboard-agent_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_windows_amd64.zip) |
+            | Windows | arm64 | [sboard-agent_windows_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_windows_arm64.zip) |
+            | Windows | 386 | [sboard-agent_windows_386.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_windows_386.zip) |
+            | macOS | amd64 | [sboard-agent_darwin_amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_darwin_amd64.zip) |
+            | macOS | arm64 | [sboard-agent_darwin_arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/sboard-agent_darwin_arm64.zip) |
             
             ### 安装
             
