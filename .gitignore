@@ -1,0 +1,53 @@
+# 构建产物
+/sboard
+/sboard-agent
+/agent
+*.exe
+
+# Agent 嵌入目录（构建时下载）
+cmd/agent/embed/configs/sing-box/sing-box
+cmd/agent/embed/configs/sing-box/sing-box.exe
+
+# 测试环境
+run-test/
+run-agent-test/
+restart-test.sh
+
+# 数据文件
+data/
+*.db
+*.db-journal
+
+# GeoIP 数据库
+*.mmdb
+
+# 前端
+web/node_modules/
+cmd/sboard/web/*
+!cmd/sboard/web/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/
+
+# 临时文件
+tmp/
+*.tmp
+*.temp
+
+# 备份
+backup/
+agent-linux
+sboard-linux
+sboard-agent-arm64
