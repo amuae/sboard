@@ -34,9 +34,9 @@ const ref1ndBranch = "reF1nd-testing"
 // reF1nd 标签匹配模式 — 优先使用带 -reF1nd 后缀的标签（reF1nd 专属发布）
 const ref1ndTagSuffix = "-reF1nd"
 
-// 构建 sing-box 使用的 build tags（无 windows：with_naive_outbound 依赖 cronet-go，不支持 Windows）
-// with_naive_outbound 需要 with_purego 配合（CGO_ENABLED=0 时 cgo 源码被排除）
-const singboxBuildTagsUnix = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_cloudflared,with_naive_outbound,with_purego,badlinkname,tfogo_checklinkname0"
+// 构建 sing-box 使用的 build tags
+// 注意：with_naive_outbound 在交叉编译 arm64 时会产生动态链接，导致 musl 系统不可用
+const singboxBuildTagsUnix = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_cloudflared,badlinkname,tfogo_checklinkname0"
 const singboxBuildTagsWindows = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_cloudflared,badlinkname,tfogo_checklinkname0"
 
 func getSingboxBuildTags(targetOS string) string {
