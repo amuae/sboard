@@ -26,9 +26,18 @@ var ghProxies = []string{
 // 嵌入目录
 const embedDir = "cmd/agent/embed/configs"
 
+// reF1nd sing-box fork 仓库路径（本地检出）
+const ref1ndRepo = "https://github.com/reF1nd/sing-box.git"
+const ref1ndBranch = "reF1nd-testing"
+
+// 构建 sing-box 使用的 build tags
+// with_naive_outbound 需要 with_purego 配合（CGO_ENABLED=0 时 cgo 源码被排除）
+const singboxBuildTags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_cloudflared,with_naive_outbound,with_purego,badlinkname,tfogo_checklinkname0"
+
 // 缓存的版本信息
 var (
 	singboxVersion string
+	singboxCommit  string
 )
 
 // GitHubRelease GitHub Release API 响应结构
@@ -136,20 +145,30 @@ func downloadCores(targetOS, targetArch string, verbose bool) error {
 
 // fetchLatestVersions 从 GitHub API 获取最新版本
 func fetchLatestVersions(verbose bool) error {
-	client := &http.Client{Timeout: 30 * time.Second}
+	// reF1nd 没有 release，直接从本地仓库获取 commit hash
+	fmt.Println("  检测 reF1nd/sing-box 仓库...")
 
-	// 获取 sing-box 最新版本
-	singboxURL := "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
-	if verbose {
-		fmt.Printf("  请求: %s\n", singboxURL)
-	}
-	singboxVer, err := getLatestVersion(client, singboxURL)
+	repoDir, err := ensureReF1ndRepo(verbose)
 	if err != nil {
-		return fmt.Errorf("获取 sing-box 版本失败: %v", err)
+		return fmt.Errorf("获取 reF1nd 仓库失败: %v", err)
 	}
-	// sing-box 的 tag 是 v1.12.12，需要去掉 v 前缀用于下载 URL
-	singboxVersion = strings.TrimPrefix(singboxVer, "v")
 
+	// 获取 commit hash
+	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("获取 commit hash 失败: %v", err)
+	}
+	singboxCommit = strings.TrimSpace(string(out))
+	// 使用 commit hash 前 8 位作为版本标识
+	singboxVersion = singboxCommit
+	if len(singboxVersion) > 8 {
+		singboxVersion = singboxVersion[:8]
+	}
+	if verbose {
+		fmt.Printf("  reF1nd sing-box commit: %s\n", singboxCommit)
+	}
 	return nil
 }
 
@@ -192,86 +211,31 @@ func cleanOldCores() {
 }
 
 func downloadSingbox(targetOS, targetArch string, verbose bool) error {
-	fmt.Printf("\n下载 sing-box %s (%s/%s)...\n", singboxVersion, targetOS, targetArch)
+	fmt.Printf("\n编译 sing-box %s (%s/%s)...\n", singboxVersion, targetOS, targetArch)
 
 	binaryName := "sing-box"
 	if targetOS == "windows" {
 		binaryName = "sing-box.exe"
 	}
 
-	// 转换架构名称为 sing-box 使用的格式
-	// sing-box 支持: amd64, 386, arm64, armv5, armv6, armv7
-	archName := targetArch
-	switch targetArch {
-	case "arm":
-		archName = "armv7" // 默认使用 armv7
-	case "armv5":
-		archName = "armv5"
-	case "armv6":
-		archName = "armv6"
-	case "armv7":
-		archName = "armv7"
-	case "386":
-		archName = "386"
-	case "mipsle":
-		archName = "mipsle-softfloat"
-	case "mips":
-		archName = "mips-softfloat"
-	}
-
-	var filename string
-	var extractFunc func(string, string, string) error
-
-	switch targetOS {
-	case "linux":
-		filename = fmt.Sprintf("sing-box-%s-%s-%s.tar.gz", singboxVersion, targetOS, archName)
-		extractFunc = extractTarGz
-	case "windows":
-		filename = fmt.Sprintf("sing-box-%s-%s-%s.zip", singboxVersion, targetOS, archName)
-		extractFunc = extractZipSingbox
-	case "darwin":
-		filename = fmt.Sprintf("sing-box-%s-%s-%s.tar.gz", singboxVersion, targetOS, archName)
-		extractFunc = extractTarGz
-	case "freebsd":
-		filename = fmt.Sprintf("sing-box-%s-%s-%s.tar.gz", singboxVersion, targetOS, archName)
-		extractFunc = extractTarGz
-	default:
-		fmt.Printf("  跳过 sing-box: 不支持的平台 %s/%s\n", targetOS, targetArch)
-		return nil
-	}
-
-	baseURL := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/v%s/%s", singboxVersion, filename)
 	targetPath := filepath.Join(embedDir, "sing-box", binaryName)
 
-	// linux/arm* 目标需要静态链接以兼容 musl libc (OpenWrt 等)
-	if targetOS == "linux" && (archName == "arm64" || strings.HasPrefix(archName, "armv")) {
-		goarch := archName
-		goarm := ""
-		if strings.HasPrefix(archName, "armv") {
-			goarch = "arm"
-			goarm = strings.TrimPrefix(archName, "armv")
-		}
-		return buildSingboxFromSource(targetOS, goarch, goarm, singboxVersion, targetPath)
+	// 转换架构名称
+	goarch := targetArch
+	goarm := ""
+	switch targetArch {
+	case "armv5":
+		goarch = "arm"
+		goarm = "5"
+	case "armv6":
+		goarch = "arm"
+		goarm = "6"
+	case "armv7":
+		goarch = "arm"
+		goarm = "7"
 	}
 
-	// 下载文件
-	tmpFile, err := downloadWithProxy(baseURL, verbose)
-	if err != nil {
-		fmt.Printf("  警告: sing-box 下载失败 (%v)，可能不支持此架构\n", err)
-		return nil // 不阻塞构建
-	}
-	defer os.Remove(tmpFile)
-
-	// 解压
-	if err := extractFunc(tmpFile, targetPath, binaryName); err != nil {
-		return err
-	}
-
-	// 设置可执行权限
-	os.Chmod(targetPath, 0755)
-
-	fmt.Printf("sing-box 下载完成: %s\n", targetPath)
-	return nil
+	return buildSingboxFromReF1nd(targetOS, goarch, goarm, targetPath, verbose)
 }
 
 // buildSingboxFromSource 使用 CGO_ENABLED=0 从源码静态编译 sing-box，
@@ -327,6 +291,106 @@ func buildSingboxFromSource(targetOS, goarch, goarm, version, targetPath string)
 	}
 
 	fmt.Printf("sing-box 静态编译完成: %s\n", targetPath)
+	return nil
+}
+
+// reF1ndSingboxDir 返回 reF1nd sing-box 仓库的本地路径
+func reF1ndSingboxDir() string {
+	// 优先使用 sboard 项目同级的目录，否则用当前工作目录
+	candidates := []string{
+		filepath.Join("..", "sing-box-ref1nd"),
+		"/opt/github/sing-box-ref1nd",
+	}
+	for _, d := range candidates {
+		abs, _ := filepath.Abs(d)
+		if info, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil && !info.IsDir() {
+			return abs
+		}
+	}
+	return ""
+}
+
+// ensureReF1ndRepo 确保 reF1nd sing-box 仓库已克隆到本地
+func ensureReF1ndRepo(verbose bool) (string, error) {
+	repoDir := reF1ndSingboxDir()
+	if repoDir != "" {
+		// 已存在，拉取最新
+		if verbose {
+			fmt.Printf("  仓库已存在: %s\n", repoDir)
+		}
+		cmd := exec.Command("git", "fetch", "origin", ref1ndBranch)
+		cmd.Dir = repoDir
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("  警告: git fetch 失败 (%v)，使用本地版本\n", err)
+		} else {
+			cmd = exec.Command("git", "checkout", ref1ndBranch)
+			cmd.Dir = repoDir
+			cmd.Run()
+			cmd = exec.Command("git", "merge", "--ff-only", "origin/"+ref1ndBranch)
+			cmd.Dir = repoDir
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("  警告: git merge 失败 (%v)，使用本地版本\n", err)
+			}
+		}
+		return repoDir, nil
+	}
+
+	// 需要克隆
+	repoDir = filepath.Join("..", "sing-box-ref1nd")
+	absDir, _ := filepath.Abs(repoDir)
+	fmt.Printf("  克隆 reF1nd/sing-box (%s) 到 %s...\n", ref1ndBranch, absDir)
+	cmd := exec.Command("git", "clone", "-b", ref1ndBranch, "--depth", "1", ref1ndRepo, absDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("克隆 reF1nd 仓库失败: %v", err)
+	}
+	return absDir, nil
+}
+
+// buildSingboxFromReF1nd 从 reF1nd fork 编译 sing-box
+func buildSingboxFromReF1nd(targetOS, goarch, goarm, targetPath string, verbose bool) error {
+	repoDir, err := ensureReF1ndRepo(verbose)
+	if err != nil {
+		return err
+	}
+
+	armInfo := ""
+	if goarm != "" {
+		armInfo = " GOARM=" + goarm
+	}
+	fmt.Printf("\n从 reF1nd/sing-box 编译 (%s/%s%s, CGO_ENABLED=0)...\n",
+		targetOS, goarch, armInfo)
+	fmt.Printf("  tags: %s\n", singboxBuildTags)
+
+	// 在仓库目录中直接构建（用绝对路径避免 -o 被 cmd.Dir 影响）
+	absTarget, _ := filepath.Abs(targetPath)
+	execArgs := []string{"build", "-v", "-trimpath"}
+	execArgs = append(execArgs, "-ldflags", fmt.Sprintf(
+		"-X 'github.com/sagernet/sing-box/constant.Version=ref1nd-%s' -s -w -buildid=", singboxVersion))
+	execArgs = append(execArgs, "-tags", singboxBuildTags)
+	execArgs = append(execArgs, "-o", absTarget, "./cmd/sing-box")
+
+	cmd := exec.Command("go", execArgs...)
+	cmd.Dir = repoDir
+	cmd.Env = append(os.Environ(),
+		"CGO_ENABLED=0",
+		"GOOS="+targetOS,
+		"GOARCH="+goarch,
+		"GOTOOLCHAIN=local",
+	)
+	if goarm != "" {
+		cmd.Env = append(cmd.Env, "GOARM="+goarm)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("编译 sing-box (reF1nd fork) 失败: %v", err)
+	}
+
+	os.Chmod(targetPath, 0755)
+	fmt.Printf("sing-box (reF1nd) 编译完成: %s\n", targetPath)
 	return nil
 }
 
