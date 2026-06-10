@@ -176,9 +176,12 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		case "anytls":
 			userEntry["password"] = user.UUID
 		case "shadowsocks":
-			// Shadowsocks 2022 需要正确长度的密钥
-			// 使用 UUID 的 SHA256 哈希生成密钥
-			userEntry["password"] = generateSS2022UserKey(user.UUID, node.SsMethod)
+			// Shadowsocks 2022 多用户需要 serverKey:userKey 格式
+			if strings.HasPrefix(node.SsMethod, "2022-") {
+				userEntry["password"] = node.SsPassword + ":" + generateSS2022UserKey(user.UUID, node.SsMethod)
+			} else {
+				userEntry["password"] = generateSS2022UserKey(user.UUID, node.SsMethod)
+			}
 		case "hysteria2":
 			if node.Hy2Password != "" {
 				userEntry["password"] = node.Hy2Password
@@ -204,6 +207,10 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		if strings.HasPrefix(method, "2022-") {
 			inbound.Set("users", userList)
 		}
+		if node.SsObfsMode == "tls" || node.SsObfsMode == "http" {
+			inbound.Set("obfs_mode", node.SsObfsMode)
+			inbound.Set("obfs_host", node.SsObfsHost)
+		}
 	case "hysteria2":
 		inbound.Set("users", userList)
 		inbound.Set("up_mbps", node.Hy2UpMbps)
@@ -228,9 +235,9 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		inbound.Set("users", userList)
 	}
 
-	// TLS 配置（可选，trojan/anytls 也可以不启用 TLS）
-	// Naive 协议必须启用 TLS
-	if node.TlsEnabled && node.Protocol != "shadowsocks" || node.Protocol == "naive" {
+	// TLS 配置
+	// hysteria2/naive 协议必须启用 TLS（hysteria2 强制要求 TLS 加密）
+	if node.TlsEnabled && node.Protocol != "shadowsocks" || node.Protocol == "naive" || node.Protocol == "hysteria2" {
 		tls := map[string]interface{}{
 			"enabled":     true,
 			"server_name": node.ServerName,
@@ -555,6 +562,10 @@ func buildSingBoxInboundWithExtraUUIDs(node *database.InboundNode, relations []N
 		if strings.HasPrefix(method, "2022-") {
 			inbound.Set("users", userList)
 		}
+		if node.SsObfsMode == "tls" || node.SsObfsMode == "http" {
+			inbound.Set("obfs_mode", node.SsObfsMode)
+			inbound.Set("obfs_host", node.SsObfsHost)
+		}
 	case "hysteria2":
 		inbound.Set("users", userList)
 		inbound.Set("up_mbps", node.Hy2UpMbps)
@@ -592,7 +603,8 @@ func buildSingBoxInboundWithExtraUUIDs(node *database.InboundNode, relations []N
 	}
 
 	// TLS 配置
-	if node.TlsEnabled && node.Protocol != "shadowsocks" || node.Protocol == "naive" {
+	// hysteria2/naive 协议必须启用 TLS（hysteria2 强制要求 TLS 加密）
+	if node.TlsEnabled && node.Protocol != "shadowsocks" || node.Protocol == "naive" || node.Protocol == "hysteria2" {
 		tls := map[string]interface{}{
 			"enabled":     true,
 			"server_name": node.ServerName,
@@ -665,8 +677,12 @@ func buildUserEntry(protocol, name, uuid, flow string, node *database.InboundNod
 	case "anytls":
 		userEntry["password"] = uuid
 	case "shadowsocks":
-		// Shadowsocks 2022 需要正确长度的密钥
-		userEntry["password"] = generateSS2022UserKey(uuid, node.SsMethod)
+		// Shadowsocks 2022 多用户需要 serverKey:userKey 格式
+		if strings.HasPrefix(node.SsMethod, "2022-") {
+			userEntry["password"] = node.SsPassword + ":" + generateSS2022UserKey(uuid, node.SsMethod)
+		} else {
+			userEntry["password"] = generateSS2022UserKey(uuid, node.SsMethod)
+		}
 	case "hysteria2":
 		if node.Hy2Password != "" {
 			userEntry["password"] = node.Hy2Password

@@ -47,6 +47,8 @@ type CreateNodeRequest struct {
 	// Shadowsocks
 	SsMethod   string `json:"ss_method"`
 	SsPassword string `json:"ss_password"`
+	SsObfsMode string `json:"ss_obfs_mode"`
+	SsObfsHost string `json:"ss_obfs_host"`
 
 	// Hysteria2
 	Hy2Password     string `json:"hy2_password"`
@@ -93,6 +95,8 @@ type UpdateNodeRequest struct {
 	// Shadowsocks
 	SsMethod   string `json:"ss_method"`
 	SsPassword string `json:"ss_password"`
+	SsObfsMode string `json:"ss_obfs_mode"`
+	SsObfsHost string `json:"ss_obfs_host"`
 
 	// Hysteria2
 	Hy2Password     string `json:"hy2_password"`
@@ -265,6 +269,8 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 		Flow:             req.Flow,
 		SsMethod:         req.SsMethod,
 		SsPassword:       req.SsPassword,
+		SsObfsMode:       req.SsObfsMode,
+		SsObfsHost:       req.SsObfsHost,
 		Hy2Password:      req.Hy2Password,
 		Hy2UpMbps:        req.Hy2UpMbps,
 		Hy2DownMbps:      req.Hy2DownMbps,
@@ -404,6 +410,8 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 	node.Flow = req.Flow
 	node.SsMethod = req.SsMethod
 	node.SsPassword = req.SsPassword
+	node.SsObfsMode = req.SsObfsMode
+	node.SsObfsHost = req.SsObfsHost
 	node.Hy2Password = req.Hy2Password
 	node.Hy2UpMbps = req.Hy2UpMbps
 	node.Hy2DownMbps = req.Hy2DownMbps

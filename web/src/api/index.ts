@@ -156,6 +156,8 @@ export interface Node {
   flow: string
   ss_method: string
   ss_password: string
+  ss_obfs_mode: string
+  ss_obfs_host: string
   hy2_password: string
   hy2_up_mbps: number
   hy2_down_mbps: number
@@ -431,7 +433,6 @@ export const getAgentStatus = (serverId: number) => {
 export interface Settings {
   id: number
   admin_username: string
-  admin_password: string
   sublink_domain: string
   created_at: string
   updated_at: string
@@ -476,5 +477,49 @@ export const getSubscriptionConfigs = () => {
 export const saveSubscriptionConfigs = (data: SubscriptionConfigs) => {
   return api.post('/subscription/configs', data)
 }
+
+// ============ 外部节点管理 ============
+export interface ExternalNode {
+  id: number
+  name: string
+  protocol: string
+  host: string
+  port: number
+  uuid: string
+  tls_enabled: boolean
+  server_name: string
+  alpn: string
+  reality_enabled: boolean
+  reality_server: string
+  reality_pubkey: string
+  reality_short_id: string
+  transport_enabled: boolean
+  transport_type: string
+  ws_path: string
+  grpc_service: string
+  transport_host: string
+  flow: string
+  ss_method: string
+  ss_password: string
+  ss_obfs_mode: string
+  ss_obfs_host: string
+  hy2_password: string
+  hy2_up_mbps: number
+  hy2_down_mbps: number
+  hy2_obfs: string
+  hy2_obfs_password: string
+  level: number
+  enabled: boolean
+  sort_order: number
+  country: string
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export const getExternalNodes = () => api.get('/external-nodes')
+export const createExternalNode = (data: Partial<ExternalNode>) => api.post('/external-nodes', data)
+export const updateExternalNode = (id: number, data: Partial<ExternalNode>) => api.put(`/external-nodes/${id}`, data)
+export const deleteExternalNode = (id: number) => api.delete(`/external-nodes/${id}`)
 
 export default api

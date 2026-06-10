@@ -226,6 +226,22 @@
                     <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305 (ARM优化，32字节密钥)</option>
                   </select>
                 </div>
+
+                <h6 class="mb-2 mt-3"><i class="bi bi-shield-lock"></i> SNI 伪装 (reF1nd sing-box)</h6>
+                <div class="mb-2">
+                  <label>伪装模式</label>
+                  <select class="form-select" v-model="formData.ss_obfs_mode">
+                    <option value="">不启用伪装</option>
+                    <option value="tls">TLS (推荐，DPI对抗)</option>
+                    <option value="http">HTTP (兼容性更好)</option>
+                  </select>
+                  <small class="text-muted">需要服务端使用 reF1nd fork 的 sing-box</small>
+                </div>
+                <div v-if="formData.ss_obfs_mode" class="mb-2">
+                  <label>伪装域名 (SNI)</label>
+                  <input type="text" class="form-control" v-model="formData.ss_obfs_host" placeholder="down.dingtalk.com">
+                  <small class="text-muted">留空则使用 Server Name</small>
+                </div>
               </div>
 
               <!-- Hysteria2 配置 -->
@@ -389,7 +405,7 @@
 <script setup lang="ts">
 import { ref, onMounted, inject, watch } from 'vue'
 import { Modal } from 'bootstrap'
-import { getNodes, createNode, updateNode, deleteNode, getConfig, type Node } from '@/api'
+import { getNodes, createNode, updateNode, deleteNode, getConfig, generateRealityKeys as apiGenerateRealityKeys, type Node } from '@/api'
 
 const showToast = inject<(type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void>('showToast')!
 
@@ -442,6 +458,8 @@ function getDefaultFormData() {
     flow: '',
     ss_method: '2022-blake3-aes-256-gcm',
     ss_password: '',
+    ss_obfs_mode: '',
+    ss_obfs_host: '',
     hy2_password: '',
     hy2_up_mbps: 100,
     hy2_down_mbps: 100,
@@ -497,18 +515,15 @@ function onProtocolChange() {
   }
 }
 
-function generateRealityKeys() {
-  // 生成模拟的 Reality 密钥对（实际应该调用后端API）
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let pubkey = ''
-  let privkey = ''
-  for (let i = 0; i < 43; i++) {
-    pubkey += chars.charAt(Math.floor(Math.random() * chars.length))
-    privkey += chars.charAt(Math.floor(Math.random() * chars.length))
+async function generateRealityKeys() {
+  try {
+    const res = await apiGenerateRealityKeys()
+    formData.value.reality_pubkey = res.data.public_key
+    formData.value.reality_privkey = res.data.private_key
+    showToast('success', '成功', '已生成 Reality 密钥对')
+  } catch (err: any) {
+    showToast('error', '错误', '生成 Reality 密钥对失败: ' + (err.response?.data?.error || err.message))
   }
-  formData.value.reality_pubkey = pubkey
-  formData.value.reality_privkey = privkey
-  showToast('success', '成功', '已生成 Reality 密钥对')
 }
 
 function openAddModal() {
@@ -540,8 +555,10 @@ function openEditModal(node: Node) {
     transport_host: node.transport_host || '',
     grpc_service: node.grpc_service || 'GunService',
     flow: node.flow || '',
-    ss_method: node.ss_method || 'aes-256-gcm',
+    ss_method: node.ss_method || '2022-blake3-aes-256-gcm',
     ss_password: node.ss_password || '',
+    ss_obfs_mode: node.ss_obfs_mode || '',
+    ss_obfs_host: node.ss_obfs_host || '',
     hy2_password: node.hy2_password || '',
     hy2_up_mbps: node.hy2_up_mbps || 100,
     hy2_down_mbps: node.hy2_down_mbps || 100,
@@ -587,6 +604,8 @@ async function saveNode() {
       flow: formData.value.flow,
       ss_method: formData.value.ss_method,
       ss_password: formData.value.ss_password,
+      ss_obfs_mode: formData.value.ss_obfs_mode,
+      ss_obfs_host: formData.value.ss_obfs_host,
       hy2_password: formData.value.hy2_password,
       hy2_up_mbps: formData.value.hy2_up_mbps,
       hy2_down_mbps: formData.value.hy2_down_mbps,

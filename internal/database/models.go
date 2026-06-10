@@ -183,6 +183,8 @@ type InboundNode struct {
 	// Shadowsocks 配置
 	SsMethod   string `gorm:"size:50" json:"ss_method"`    // aes-256-gcm/chacha20-ietf-poly1305/2022-blake3-aes-256-gcm
 	SsPassword string `gorm:"size:100" json:"ss_password"` // 随机生成的密码
+	SsObfsMode string `gorm:"size:20" json:"ss_obfs_mode"` // tls/http (reF1nd sing-box SS SNI伪装)
+	SsObfsHost string `gorm:"size:100" json:"ss_obfs_host"` // SNI伪装域名
 
 	// Hysteria2 配置
 	Hy2Password     string `gorm:"size:100" json:"hy2_password"`
@@ -194,6 +196,59 @@ type InboundNode struct {
 	// 状态
 	Enabled bool   `gorm:"default:true" json:"enabled"`
 	Notes   string `gorm:"type:text" json:"notes"`
+
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// ExternalNode 外部节点（第三方分享的代理节点）
+type ExternalNode struct {
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Name     string `gorm:"size:100;not null" json:"name"`     // 用户可见的节点名
+	Protocol string `gorm:"size:20;not null" json:"protocol"` // trojan/vless/vmess/shadowsocks/hysteria2/anytls
+	Host     string `gorm:"size:200;not null" json:"host"`    // 服务器地址
+	Port     int    `gorm:"not null" json:"port"`
+	UUID     string `gorm:"size:100" json:"uuid"`             // 用户名/UUID/密码(trojan)
+
+	// TLS
+	TlsEnabled bool   `json:"tls_enabled"`
+	ServerName string `gorm:"size:100" json:"server_name"`
+	Alpn       string `gorm:"size:100" json:"alpn"`
+
+	// Reality
+	RealityEnabled bool   `json:"reality_enabled"`
+	RealityServer  string `gorm:"size:100" json:"reality_server"`
+	RealityPubkey  string `gorm:"size:100" json:"reality_pubkey"`
+	RealityShortId string `gorm:"size:20" json:"reality_short_id"`
+
+	// Transport
+	TransportEnabled bool   `json:"transport_enabled"`
+	TransportType    string `gorm:"size:20" json:"transport_type"` // ws/grpc
+	WsPath           string `gorm:"size:200" json:"ws_path"`
+	GrpcService      string `gorm:"size:100" json:"grpc_service"`
+	TransportHost    string `gorm:"size:100" json:"transport_host"`
+
+	// VLESS
+	Flow string `gorm:"size:50" json:"flow"`
+
+	// Shadowsocks
+	SsMethod   string `gorm:"size:50" json:"ss_method"`
+	SsPassword string `gorm:"size:100" json:"ss_password"`
+
+	// Hysteria2
+	Hy2Password     string `gorm:"size:100" json:"hy2_password"`
+	Hy2UpMbps       int    `json:"hy2_up_mbps"`
+	Hy2DownMbps     int    `json:"hy2_down_mbps"`
+	Hy2Obfs         string `gorm:"size:20" json:"hy2_obfs"`
+	Hy2ObfsPassword string `gorm:"size:100" json:"hy2_obfs_password"`
+
+	// 控制字段
+	Level     int    `gorm:"default:1" json:"level"`          // 使用等级（1/2/3）
+	Enabled   bool   `gorm:"default:true" json:"enabled"`     // 是否启用
+	SortOrder int    `gorm:"default:0" json:"sort_order"`     // 排序
+	Country   string `gorm:"size:10" json:"country"`          // 国家代码（用于显示旗帜）
+	Notes     string `gorm:"type:text" json:"notes"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

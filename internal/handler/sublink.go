@@ -162,7 +162,21 @@ func (s *Server) handleSublink(c *gin.Context) {
 		}
 	}
 
-	if len(userNodes) == 0 {
+	// 获取外部节点（按用户等级过滤）
+	var externalNodes []database.ExternalNode
+	extQuery := database.DB.Where("enabled = ?", true)
+	extQuery.Order("sort_order ASC, id ASC").Find(&externalNodes)
+
+	// 按等级过滤
+	var filteredExternalNodes []database.ExternalNode
+	for _, ext := range externalNodes {
+		if ext.Level <= user.Level {
+			filteredExternalNodes = append(filteredExternalNodes, ext)
+		}
+	}
+	externalNodes = filteredExternalNodes
+
+	if len(userNodes) == 0 && len(externalNodes) == 0 {
 		c.String(http.StatusNotFound, "没有可用的节点")
 		return
 	}
@@ -229,13 +243,13 @@ func (s *Server) handleSublink(c *gin.Context) {
 
 	switch format {
 	case "mihomo", "clash":
-		content, err = generateMihomoSubscription(serversWithNodes, serverNodeConfigs, &user, lv)
+		content, err = generateMihomoSubscription(serversWithNodes, serverNodeConfigs, &user, lv, externalNodes)
 		contentType = "text/yaml; charset=utf-8"
 	case "singbox", "sing-box":
-		content, err = generateSingBoxSubscription(serversWithNodes, serverNodeConfigs, &user, lv)
+		content, err = generateSingBoxSubscription(serversWithNodes, serverNodeConfigs, &user, lv, externalNodes)
 		contentType = "application/json; charset=utf-8"
 	case "v2ray", "base64":
-		content, err = generateV2RaySubscription(serversWithNodes, serverNodeConfigs, &user, lv)
+		content, err = generateV2RaySubscription(serversWithNodes, serverNodeConfigs, &user, lv, externalNodes)
 		contentType = "text/plain; charset=utf-8"
 	default:
 		c.String(http.StatusBadRequest, "不支持的格式: "+format)
@@ -365,7 +379,7 @@ type MihomoGroupFull struct {
 // SingBox 类型定义
 type SingBoxOutbound map[string]interface{}
 
-func generateMihomoSubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int) (string, error) {
+func generateMihomoSubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int, externalNodes []database.ExternalNode) (string, error) {
 	// 获取启用的 Mihomo 配置
 	mihomoConfig, err := GetEnabledMihomoConfig()
 	if err != nil {
@@ -428,6 +442,16 @@ func generateMihomoSubscription(servers []ServerWithNodes, nodeConfigs map[uint]
 					}
 				}
 			}
+		}
+	}
+
+	// 添加外部节点
+	for _, ext := range externalNodes {
+		proxy := buildMihomoProxyFromExternal(&ext)
+		if proxy != nil {
+			proxies = append(proxies, proxy)
+			proxyName := proxy.GetName()
+			overseasProxies = append(overseasProxies, proxyName)
 		}
 	}
 
@@ -688,13 +712,31 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 		add("cipher", node.SsMethod)
 		add("password", getSS2022Password(node, p.UUID))
 		add("udp", true)
+		if node.SsObfsMode == "tls" || node.SsObfsMode == "http" {
+			obfsHost := node.SsObfsHost
+			if obfsHost == "" {
+				obfsHost = node.ServerName
+			}
+			if obfsHost == "" {
+				obfsHost = p.Host
+			}
+			add("plugin", "obfs")
+			add("plugin-opts", map[string]interface{}{
+				"mode": node.SsObfsMode,
+				"host": obfsHost,
+			})
+		}
 
 	case "hysteria2":
+		password := p.UUID
+		if node.Hy2Password != "" {
+			password = node.Hy2Password
+		}
 		add("type", "hysteria2")
 		add("name", p.Name)
 		add("server", p.Host)
 		add("port", p.Port)
-		add("password", p.UUID)
+		add("password", password)
 		add("udp", true)
 		buildMihomoTLSOpts(node, add, true)
 		if node.Hy2Obfs != "" {
@@ -709,7 +751,7 @@ func buildMihomoProxy(server *database.Server, node *database.InboundNode, nc *d
 	return proxy
 }
 
-func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int) (string, error) {
+func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int, externalNodes []database.ExternalNode) (string, error) {
 	// 获取用户配置的 SingBox 订阅模板
 	subscriptionConfig, err := GetEnabledSingBoxConfig()
 	if err != nil {
@@ -780,6 +822,21 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 					}
 				}
 			}
+		}
+	}
+
+	// 添加外部节点
+	for _, ext := range externalNodes {
+		outbound := buildSingBoxOutboundFromExternal(&ext)
+		if outbound != nil {
+			nodeOutbounds = append(nodeOutbounds, outbound)
+			tag := outbound["tag"].(string)
+			// 使用 Country 字段判断国家分组
+			if ext.Country != "" {
+				countryCode := strings.ToUpper(ext.Country)
+				countryProxyTags[countryCode] = append(countryProxyTags[countryCode], tag)
+			}
+			overseasProxyTags = append(overseasProxyTags, tag)
 		}
 	}
 
@@ -1230,10 +1287,27 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 		outbound["type"] = "shadowsocks"
 		outbound["method"] = node.SsMethod
 		outbound["password"] = getSS2022Password(node, p.UUID)
+		if node.SsObfsMode == "tls" || node.SsObfsMode == "http" {
+			obfsHost := node.SsObfsHost
+			if obfsHost == "" {
+				obfsHost = node.ServerName
+			}
+			if obfsHost == "" {
+				obfsHost = p.Host
+			}
+			outbound["plugin"] = "obfs-local"
+			outbound["plugin_opts"] = fmt.Sprintf("obfs=%s;obfs-host=%s", node.SsObfsMode, obfsHost)
+		}
 
 	case "hysteria2":
+		password := p.UUID
+		if node.Hy2Password != "" {
+			password = node.Hy2Password
+		}
 		outbound["type"] = "hysteria2"
-		outbound["password"] = p.UUID
+		outbound["password"] = password
+		outbound["up_mbps"] = node.Hy2UpMbps
+		outbound["down_mbps"] = node.Hy2DownMbps
 		outbound["tls"] = buildSingBoxTLS(node)
 		if node.Hy2Obfs != "" {
 			outbound["obfs"] = map[string]interface{}{
@@ -1337,7 +1411,7 @@ func buildSingBoxTransport(node *database.InboundNode) map[string]interface{} {
 	return transport
 }
 
-func generateV2RaySubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int) (string, error) {
+func generateV2RaySubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int, externalNodes []database.ExternalNode) (string, error) {
 	var links []string
 
 	for _, swn := range servers {
@@ -1372,6 +1446,14 @@ func generateV2RaySubscription(servers []ServerWithNodes, nodeConfigs map[uint]m
 					links = append(links, outboundLink)
 				}
 			}
+		}
+	}
+
+	// 添加外部节点
+	for _, ext := range externalNodes {
+		link := buildV2RayLinkFromExternal(&ext)
+		if link != "" {
+			links = append(links, link)
 		}
 	}
 
@@ -1517,9 +1599,29 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 
 	case "shadowsocks":
 		userInfo := base64.StdEncoding.EncodeToString([]byte(node.SsMethod + ":" + getSS2022Password(node, p.UUID)))
-		return fmt.Sprintf("ss://%s@%s:%d#%s", userInfo, formatHostForURL(p.Host), p.Port, url.PathEscape(p.Name))
+		baseURL := fmt.Sprintf("ss://%s@%s:%d", userInfo, formatHostForURL(p.Host), p.Port)
+		params := url.Values{}
+		if node.SsObfsMode == "tls" || node.SsObfsMode == "http" {
+			obfsHost := node.SsObfsHost
+			if obfsHost == "" {
+				obfsHost = node.ServerName
+			}
+			if obfsHost == "" {
+				obfsHost = p.Host
+			}
+			pluginOpts := url.QueryEscape("obfs=" + node.SsObfsMode + ";obfs-host=" + obfsHost)
+			params.Set("plugin", "obfs-local;"+pluginOpts)
+		}
+		if len(params) > 0 {
+			return baseURL + "?" + params.Encode() + "#" + url.PathEscape(p.Name)
+		}
+		return baseURL + "#" + url.PathEscape(p.Name)
 
 	case "hysteria2":
+		password := p.UUID
+		if node.Hy2Password != "" {
+			password = node.Hy2Password
+		}
 		params := url.Values{}
 		if node.ServerName != "" {
 			params.Set("sni", node.ServerName)
@@ -1529,7 +1631,7 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 			params.Set("obfs", node.Hy2Obfs)
 			params.Set("obfs-password", node.Hy2ObfsPassword)
 		}
-		return fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s", p.UUID, formatHostForURL(p.Host), p.Port, params.Encode(), url.PathEscape(p.Name))
+		return fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s", password, formatHostForURL(p.Host), p.Port, params.Encode(), url.PathEscape(p.Name))
 
 	case "naive":
 		params := url.Values{}
@@ -1541,6 +1643,451 @@ func buildV2RayLink(server *database.Server, node *database.InboundNode, nc *dat
 			queryStr = "?" + params.Encode()
 		}
 		return fmt.Sprintf("naive+https://%s:%s@%s:%d%s#%s", url.PathEscape(user.Name), url.PathEscape(p.UUID), formatHostForURL(p.Host), p.Port, queryStr, url.PathEscape(p.Name))
+
+	default:
+		return ""
+	}
+}
+
+// ========== 外部节点构建函数 ==========
+
+// buildMihomoTransportOptsExt 构建外部节点的 Mihomo 传输层配置
+func buildMihomoTransportOptsExt(ext *database.ExternalNode, add func(string, interface{})) {
+	if !ext.TransportEnabled || ext.TransportType == "" || ext.TransportType == "tcp" {
+		return
+	}
+	add("network", ext.TransportType)
+	switch ext.TransportType {
+	case "ws":
+		wsOpts := map[string]interface{}{}
+		if ext.WsPath != "" {
+			wsOpts["path"] = ext.WsPath
+		}
+		if ext.TransportHost != "" {
+			wsOpts["headers"] = map[string]interface{}{"Host": ext.TransportHost}
+		}
+		if len(wsOpts) > 0 {
+			add("ws-opts", wsOpts)
+		}
+	case "grpc":
+		if ext.GrpcService != "" {
+			add("grpc-opts", map[string]interface{}{"grpc-service-name": ext.GrpcService})
+		}
+	case "h2":
+		h2Opts := map[string]interface{}{}
+		if ext.TransportHost != "" {
+			h2Opts["host"] = []string{ext.TransportHost}
+		}
+		if ext.WsPath != "" {
+			h2Opts["path"] = ext.WsPath
+		}
+		if len(h2Opts) > 0 {
+			add("h2-opts", h2Opts)
+		}
+	case "http":
+		httpOpts := map[string]interface{}{}
+		if ext.TransportHost != "" {
+			httpOpts["headers"] = map[string]interface{}{"Host": []string{ext.TransportHost}}
+		}
+		if ext.WsPath != "" {
+			httpOpts["path"] = []string{ext.WsPath}
+		}
+		if len(httpOpts) > 0 {
+			add("http-opts", httpOpts)
+		}
+	}
+}
+
+// buildMihomoTLSOptsExt 构建外部节点的 Mihomo TLS 配置
+func buildMihomoTLSOptsExt(ext *database.ExternalNode, add func(string, interface{}), useSNI bool) {
+	if useSNI {
+		if ext.ServerName != "" {
+			add("sni", ext.ServerName)
+		}
+	} else {
+		if ext.RealityEnabled && ext.RealityServer != "" {
+			add("servername", ext.RealityServer)
+		} else if ext.ServerName != "" {
+			add("servername", ext.ServerName)
+		}
+	}
+	add("skip-cert-verify", true)
+	add("client-fingerprint", "chrome")
+	if ext.RealityEnabled && ext.RealityPubkey != "" {
+		add("reality-opts", map[string]interface{}{
+			"public-key": ext.RealityPubkey,
+			"short-id":   ext.RealityShortId,
+		})
+	}
+}
+
+func buildMihomoProxyFromExternal(ext *database.ExternalNode) MihomoProxy {
+	var proxy MihomoProxy
+	add := func(key string, value interface{}) {
+		proxy = append(proxy, MihomoProxyField{Key: key, Value: value})
+	}
+
+	switch ext.Protocol {
+	case "vmess":
+		add("type", "vmess")
+		add("name", ext.Name)
+		add("server", ext.Host)
+		add("port", ext.Port)
+		add("uuid", ext.UUID)
+		add("alterId", 0)
+		add("cipher", "auto")
+		add("udp", true)
+		buildMihomoTransportOptsExt(ext, add)
+		if ext.TlsEnabled {
+			add("tls", true)
+			buildMihomoTLSOptsExt(ext, add, false)
+		}
+
+	case "vless":
+		add("type", "vless")
+		add("name", ext.Name)
+		add("server", ext.Host)
+		add("port", ext.Port)
+		add("uuid", ext.UUID)
+		add("udp", true)
+		buildMihomoTransportOptsExt(ext, add)
+		if ext.TlsEnabled || ext.RealityEnabled {
+			add("tls", true)
+			buildMihomoTLSOptsExt(ext, add, false)
+		}
+		if ext.Flow != "" {
+			add("flow", ext.Flow)
+		}
+
+	case "trojan":
+		add("type", "trojan")
+		add("name", ext.Name)
+		add("server", ext.Host)
+		add("port", ext.Port)
+		add("password", ext.UUID)
+		add("udp", true)
+		buildMihomoTransportOptsExt(ext, add)
+		buildMihomoTLSOptsExt(ext, add, true)
+
+	case "anytls":
+		add("type", "anytls")
+		add("name", ext.Name)
+		add("server", ext.Host)
+		add("port", ext.Port)
+		add("password", ext.UUID)
+		add("udp", true)
+		buildMihomoTLSOptsExt(ext, add, true)
+
+	case "shadowsocks":
+		add("type", "ss")
+		add("name", ext.Name)
+		add("server", ext.Host)
+		add("port", ext.Port)
+		add("cipher", ext.SsMethod)
+		add("password", ext.SsPassword)
+		add("udp", true)
+
+	case "hysteria2":
+		add("type", "hysteria2")
+		add("name", ext.Name)
+		add("server", ext.Host)
+		add("port", ext.Port)
+		add("password", ext.Hy2Password)
+		add("udp", true)
+		buildMihomoTLSOptsExt(ext, add, true)
+		if ext.Hy2Obfs != "" {
+			add("obfs", ext.Hy2Obfs)
+			add("obfs-password", ext.Hy2ObfsPassword)
+		}
+
+	default:
+		return nil
+	}
+
+	return proxy
+}
+
+// buildSingBoxTLSExt 构建外部节点的 sing-box TLS 配置
+func buildSingBoxTLSExt(ext *database.ExternalNode) map[string]interface{} {
+	tls := map[string]interface{}{
+		"enabled":  true,
+		"insecure": true,
+	}
+	if ext.ServerName != "" {
+		tls["server_name"] = ext.ServerName
+	}
+	if ext.RealityEnabled && ext.RealityPubkey != "" {
+		if ext.RealityServer != "" {
+			tls["server_name"] = ext.RealityServer
+		}
+		tls["reality"] = map[string]interface{}{
+			"enabled":    true,
+			"public_key": ext.RealityPubkey,
+			"short_id":   ext.RealityShortId,
+		}
+	}
+	tls["utls"] = map[string]interface{}{
+		"enabled":     true,
+		"fingerprint": "chrome",
+	}
+	return tls
+}
+
+// buildSingBoxTransportExt 构建外部节点的 sing-box 传输层配置
+func buildSingBoxTransportExt(ext *database.ExternalNode) map[string]interface{} {
+	transport := map[string]interface{}{
+		"type": ext.TransportType,
+	}
+	switch ext.TransportType {
+	case "ws":
+		if ext.WsPath != "" {
+			transport["path"] = ext.WsPath
+		}
+		if ext.TransportHost != "" {
+			transport["headers"] = map[string]interface{}{
+				"Host": ext.TransportHost,
+			}
+		}
+	case "grpc":
+		if ext.GrpcService != "" {
+			transport["service_name"] = ext.GrpcService
+		}
+	case "http", "h2":
+		transport["type"] = "http"
+		if ext.TransportHost != "" {
+			transport["host"] = []string{ext.TransportHost}
+		}
+		if ext.WsPath != "" {
+			transport["path"] = ext.WsPath
+		}
+	case "httpupgrade":
+		if ext.WsPath != "" {
+			transport["path"] = ext.WsPath
+		}
+		if ext.TransportHost != "" {
+			transport["host"] = ext.TransportHost
+		}
+	}
+	return transport
+}
+
+func buildSingBoxOutboundFromExternal(ext *database.ExternalNode) SingBoxOutbound {
+	outbound := SingBoxOutbound{
+		"tag":         ext.Name,
+		"server":      ext.Host,
+		"server_port": ext.Port,
+	}
+
+	switch ext.Protocol {
+	case "vmess":
+		outbound["type"] = "vmess"
+		outbound["uuid"] = ext.UUID
+		outbound["security"] = "auto"
+		outbound["alter_id"] = 0
+		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
+			outbound["transport"] = buildSingBoxTransportExt(ext)
+		}
+		if ext.TlsEnabled {
+			outbound["tls"] = buildSingBoxTLSExt(ext)
+		}
+
+	case "vless":
+		outbound["type"] = "vless"
+		outbound["uuid"] = ext.UUID
+		if ext.Flow != "" {
+			outbound["flow"] = ext.Flow
+		}
+		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
+			outbound["transport"] = buildSingBoxTransportExt(ext)
+		}
+		if ext.TlsEnabled || ext.RealityEnabled {
+			outbound["tls"] = buildSingBoxTLSExt(ext)
+		}
+
+	case "trojan":
+		outbound["type"] = "trojan"
+		outbound["password"] = ext.UUID
+		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
+			outbound["transport"] = buildSingBoxTransportExt(ext)
+		}
+		outbound["tls"] = buildSingBoxTLSExt(ext)
+
+	case "shadowsocks":
+		outbound["type"] = "shadowsocks"
+		outbound["method"] = ext.SsMethod
+		outbound["password"] = ext.SsPassword
+
+	case "hysteria2":
+		outbound["type"] = "hysteria2"
+		outbound["password"] = ext.Hy2Password
+		outbound["up_mbps"] = ext.Hy2UpMbps
+		outbound["down_mbps"] = ext.Hy2DownMbps
+		outbound["tls"] = buildSingBoxTLSExt(ext)
+		if ext.Hy2Obfs != "" {
+			outbound["obfs"] = map[string]interface{}{
+				"type":     ext.Hy2Obfs,
+				"password": ext.Hy2ObfsPassword,
+			}
+		}
+
+	case "anytls":
+		outbound["type"] = "anytls"
+		outbound["password"] = ext.UUID
+		outbound["tls"] = buildSingBoxTLSExt(ext)
+
+	default:
+		return nil
+	}
+
+	return outbound
+}
+
+func buildV2RayLinkFromExternal(ext *database.ExternalNode) string {
+	switch ext.Protocol {
+	case "vmess":
+		vmessConfig := map[string]interface{}{
+			"v":    "2",
+			"ps":   ext.Name,
+			"add":  ext.Host,
+			"port": ext.Port,
+			"id":   ext.UUID,
+			"aid":  0,
+			"scy":  "auto",
+			"type": "none",
+		}
+		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
+			if ext.TransportType == "http" {
+				vmessConfig["net"] = "tcp"
+				vmessConfig["type"] = "http"
+				if ext.WsPath != "" {
+					vmessConfig["path"] = ext.WsPath
+				}
+				if ext.TransportHost != "" {
+					vmessConfig["host"] = ext.TransportHost
+				}
+			} else {
+				vmessConfig["net"] = ext.TransportType
+				if ext.TransportType == "ws" {
+					if ext.WsPath != "" {
+						vmessConfig["path"] = ext.WsPath
+					}
+					if ext.TransportHost != "" {
+						vmessConfig["host"] = ext.TransportHost
+					}
+				} else if ext.TransportType == "grpc" && ext.GrpcService != "" {
+					vmessConfig["path"] = ext.GrpcService
+					vmessConfig["type"] = "gun"
+				} else if ext.TransportType == "h2" {
+					if ext.WsPath != "" {
+						vmessConfig["path"] = ext.WsPath
+					}
+					if ext.TransportHost != "" {
+						vmessConfig["host"] = ext.TransportHost
+					}
+				}
+			}
+		} else {
+			vmessConfig["net"] = "tcp"
+		}
+		if ext.TlsEnabled {
+			vmessConfig["tls"] = "tls"
+			if ext.ServerName != "" {
+				vmessConfig["sni"] = ext.ServerName
+			}
+		} else {
+			vmessConfig["tls"] = ""
+		}
+		jsonData, _ := json.Marshal(vmessConfig)
+		return "vmess://" + base64.StdEncoding.EncodeToString(jsonData)
+
+	case "vless":
+		params := url.Values{}
+		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
+			params.Set("type", ext.TransportType)
+			if ext.TransportType == "ws" {
+				if ext.WsPath != "" {
+					params.Set("path", ext.WsPath)
+				}
+				if ext.TransportHost != "" {
+					params.Set("host", ext.TransportHost)
+				}
+			} else if ext.TransportType == "grpc" && ext.GrpcService != "" {
+				params.Set("serviceName", ext.GrpcService)
+			}
+		} else {
+			params.Set("type", "tcp")
+		}
+		if ext.RealityEnabled && ext.RealityPubkey != "" {
+			params.Set("security", "reality")
+			params.Set("pbk", ext.RealityPubkey)
+			params.Set("sid", ext.RealityShortId)
+			if ext.RealityServer != "" {
+				params.Set("sni", ext.RealityServer)
+			}
+			params.Set("fp", "chrome")
+		} else if ext.TlsEnabled {
+			params.Set("security", "tls")
+			if ext.ServerName != "" {
+				params.Set("sni", ext.ServerName)
+			}
+			params.Set("allowInsecure", "1")
+			params.Set("fp", "chrome")
+		} else {
+			params.Set("security", "none")
+		}
+		if ext.Flow != "" {
+			params.Set("flow", ext.Flow)
+		}
+		return fmt.Sprintf("vless://%s@%s:%d?%s#%s", ext.UUID, formatHostForURL(ext.Host), ext.Port, params.Encode(), url.PathEscape(ext.Name))
+
+	case "trojan":
+		params := url.Values{}
+		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
+			params.Set("type", ext.TransportType)
+			if ext.TransportType == "ws" {
+				if ext.WsPath != "" {
+					params.Set("path", ext.WsPath)
+				}
+				if ext.TransportHost != "" {
+					params.Set("host", ext.TransportHost)
+				}
+			} else if ext.TransportType == "grpc" && ext.GrpcService != "" {
+				params.Set("serviceName", ext.GrpcService)
+				params.Set("mode", "gun")
+			}
+		}
+		if ext.ServerName != "" {
+			params.Set("sni", ext.ServerName)
+		} else {
+			params.Set("sni", ext.Host)
+		}
+		params.Set("allowInsecure", "1")
+		params.Set("fp", "chrome")
+		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", ext.UUID, formatHostForURL(ext.Host), ext.Port, params.Encode(), url.PathEscape(ext.Name))
+
+	case "anytls":
+		params := url.Values{}
+		if ext.ServerName != "" {
+			params.Set("sni", ext.ServerName)
+		}
+		params.Set("insecure", "1")
+		return fmt.Sprintf("anytls://%s@%s:%d?%s#%s", ext.UUID, formatHostForURL(ext.Host), ext.Port, params.Encode(), url.PathEscape(ext.Name))
+
+	case "shadowsocks":
+		userInfo := base64.StdEncoding.EncodeToString([]byte(ext.SsMethod + ":" + ext.SsPassword))
+		return fmt.Sprintf("ss://%s@%s:%d#%s", userInfo, formatHostForURL(ext.Host), ext.Port, url.PathEscape(ext.Name))
+
+	case "hysteria2":
+		params := url.Values{}
+		if ext.ServerName != "" {
+			params.Set("sni", ext.ServerName)
+		}
+		params.Set("insecure", "1")
+		if ext.Hy2Obfs != "" {
+			params.Set("obfs", ext.Hy2Obfs)
+			params.Set("obfs-password", ext.Hy2ObfsPassword)
+		}
+		return fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s", ext.Hy2Password, formatHostForURL(ext.Host), ext.Port, params.Encode(), url.PathEscape(ext.Name))
 
 	default:
 		return ""
