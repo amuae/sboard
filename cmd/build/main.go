@@ -399,7 +399,8 @@ func ensureReF1ndRepo(verbose bool) (string, error) {
 		if verbose {
 			fmt.Printf("  仓库已存在: %s\n", repoDir)
 		}
-		cmd := exec.Command("git", "fetch", "origin", ref1ndBranch)
+		// 同时拉取分支和标签
+		cmd := exec.Command("git", "fetch", "--tags", "origin", ref1ndBranch)
 		cmd.Dir = repoDir
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("  警告: git fetch 失败 (%v)，使用本地版本\n", err)
@@ -416,16 +417,27 @@ func ensureReF1ndRepo(verbose bool) (string, error) {
 		return repoDir, nil
 	}
 
-	// 需要克隆
+	// 需要克隆 — 用深度 50 确保能获取到最近 tag，然后单独拉取 tag 引用
 	repoDir = filepath.Join("..", "sing-box-ref1nd")
 	absDir, _ := filepath.Abs(repoDir)
 	fmt.Printf("  克隆 reF1nd/sing-box (%s) 到 %s...\n", ref1ndBranch, absDir)
-	cmd := exec.Command("git", "clone", "-b", ref1ndBranch, "--depth", "1", ref1ndRepo, absDir)
+	cmd := exec.Command("git", "clone", "-b", ref1ndBranch, "--depth", "50", ref1ndRepo, absDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("克隆 reF1nd 仓库失败: %v", err)
 	}
+
+	// 拉取标签（浅克隆默认不包含 tag，单独获取标签引用）
+	if verbose {
+		fmt.Println("  获取标签信息...")
+	}
+	tagFetch := exec.Command("git", "fetch", "--tags", "origin", "+refs/tags/v*:refs/tags/v*")
+	tagFetch.Dir = absDir
+	if err := tagFetch.Run(); err != nil && verbose {
+		fmt.Printf("  警告: tag fetch 失败 (%v)\n", err)
+	}
+
 	return absDir, nil
 }
 
