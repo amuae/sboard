@@ -22,7 +22,7 @@ permissions:
   contents: write
 
 env:
-  GO_VERSION: '1.24.7'
+  GO_VERSION: '1.25.10'
   NODE_VERSION: '18'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
