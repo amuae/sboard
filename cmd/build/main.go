@@ -30,9 +30,17 @@ const embedDir = "cmd/agent/embed/configs"
 const ref1ndRepo = "https://github.com/reF1nd/sing-box.git"
 const ref1ndBranch = "reF1nd-testing"
 
-// 构建 sing-box 使用的 build tags
+// 构建 sing-box 使用的 build tags（无 windows：with_naive_outbound 依赖 cronet-go，不支持 Windows）
 // with_naive_outbound 需要 with_purego 配合（CGO_ENABLED=0 时 cgo 源码被排除）
-const singboxBuildTags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_cloudflared,with_naive_outbound,with_purego,badlinkname,tfogo_checklinkname0"
+const singboxBuildTagsUnix = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_cloudflared,with_naive_outbound,with_purego,badlinkname,tfogo_checklinkname0"
+const singboxBuildTagsWindows = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_cloudflared,badlinkname,tfogo_checklinkname0"
+
+func getSingboxBuildTags(targetOS string) string {
+	if targetOS == "windows" {
+		return singboxBuildTagsWindows
+	}
+	return singboxBuildTagsUnix
+}
 
 // 缓存的版本信息
 var (
@@ -361,14 +369,15 @@ func buildSingboxFromReF1nd(targetOS, goarch, goarm, targetPath string, verbose 
 	}
 	fmt.Printf("\n从 reF1nd/sing-box 编译 (%s/%s%s, CGO_ENABLED=0)...\n",
 		targetOS, goarch, armInfo)
-	fmt.Printf("  tags: %s\n", singboxBuildTags)
+	tags := getSingboxBuildTags(targetOS)
+	fmt.Printf("  tags: %s\n", tags)
 
 	// 在仓库目录中直接构建（用绝对路径避免 -o 被 cmd.Dir 影响）
 	absTarget, _ := filepath.Abs(targetPath)
 	execArgs := []string{"build", "-v", "-trimpath"}
 	execArgs = append(execArgs, "-ldflags", fmt.Sprintf(
 		"-X 'github.com/sagernet/sing-box/constant.Version=ref1nd-%s' -s -w -buildid=", singboxVersion))
-	execArgs = append(execArgs, "-tags", singboxBuildTags)
+	execArgs = append(execArgs, "-tags", tags)
 	execArgs = append(execArgs, "-o", absTarget, "./cmd/sing-box")
 
 	cmd := exec.Command("go", execArgs...)
