@@ -387,6 +387,7 @@ func buildSingboxFromReF1nd(targetOS, goarch, goarm, targetPath string, verbose 
 		"GOOS="+targetOS,
 		"GOARCH="+goarch,
 		"GOTOOLCHAIN=local",
+		"GODEBUG=invalidgo:linknames=1", // tfo-go/v2 使用 go:linkname 引用 net.(*netFD).init
 	)
 	if goarm != "" {
 		cmd.Env = append(cmd.Env, "GOARM="+goarm)
