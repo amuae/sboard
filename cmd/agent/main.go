@@ -999,12 +999,6 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 			targetFileName = relPath
 		}
 
-		// 如果已有二进制，跳过嵌入的二进制
-		if isBinary && binaryExists {
-			log.Printf("  跳过嵌入二进制（使用现有）: %s", relPath)
-			return nil
-		}
-
 		targetFile := filepath.Join(targetPath, targetFileName)
 
 		if d.IsDir() {

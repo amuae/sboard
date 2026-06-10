@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -29,6 +30,9 @@ const embedDir = "cmd/agent/embed/configs"
 // reF1nd sing-box fork 仓库路径（本地检出）
 const ref1ndRepo = "https://github.com/reF1nd/sing-box.git"
 const ref1ndBranch = "reF1nd-testing"
+
+// reF1nd 标签匹配模式 — 优先使用带 -reF1nd 后缀的标签（reF1nd 专属发布）
+const ref1ndTagSuffix = "-reF1nd"
 
 // 构建 sing-box 使用的 build tags（无 windows：with_naive_outbound 依赖 cronet-go，不支持 Windows）
 // with_naive_outbound 需要 with_purego 配合（CGO_ENABLED=0 时 cgo 源码被排除）
@@ -151,9 +155,9 @@ func downloadCores(targetOS, targetArch string, verbose bool) error {
 	return nil
 }
 
-// fetchLatestVersions 从 GitHub API 获取最新版本
+// fetchLatestVersions 从 reF1nd 仓库获取最新标签版本
 func fetchLatestVersions(verbose bool) error {
-	// reF1nd 没有 release，直接从本地仓库获取 commit hash
+	// reF1nd 没有 release，直接从本地仓库获取最新 tag
 	fmt.Println("  检测 reF1nd/sing-box 仓库...")
 
 	repoDir, err := ensureReF1ndRepo(verbose)
@@ -161,23 +165,92 @@ func fetchLatestVersions(verbose bool) error {
 		return fmt.Errorf("获取 reF1nd 仓库失败: %v", err)
 	}
 
-	// 获取 commit hash
-	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	// 获取最新标签
+	tag, err := getLatestTag(repoDir, verbose)
+	if err != nil {
+		return fmt.Errorf("获取最新标签失败: %v", err)
+	}
+
+	singboxVersion = strings.TrimPrefix(tag, "v") // 去掉 v 前缀，保留版本号
+	singboxCommit = tag
+	if verbose {
+		fmt.Printf("  reF1nd sing-box tag: %s\n", tag)
+	}
+	return nil
+}
+
+// getLatestTag 获取 reF1nd 仓库最新标签
+// 优先使用带 -reF1nd 后缀的标签（reF1nd 专属发布），其次是普通 semver 标签
+func getLatestTag(repoDir string, verbose bool) (string, error) {
+	// 获取所有标签
+	cmd := exec.Command("git", "tag", "--merged", "HEAD")
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("获取 commit hash 失败: %v", err)
+		return "", fmt.Errorf("获取标签列表失败: %v", err)
 	}
-	singboxCommit = strings.TrimSpace(string(out))
-	// 使用 commit hash 前 8 位作为版本标识
-	singboxVersion = singboxCommit
-	if len(singboxVersion) > 8 {
-		singboxVersion = singboxVersion[:8]
+
+	tags := strings.Split(strings.TrimSpace(string(out)), "\n")
+
+	// 第一优先级：带 -reF1nd 后缀的标签
+	var reF1ndTags []string
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if strings.HasSuffix(t, ref1ndTagSuffix) && t != "" {
+			reF1ndTags = append(reF1ndTags, t)
+		}
 	}
+	if len(reF1ndTags) > 0 {
+		sort.Slice(reF1ndTags, func(i, j int) bool {
+			return reF1ndTags[i] > reF1ndTags[j] // 降序
+		})
+		if verbose {
+			fmt.Printf("  找到 reF1nd 标签: %s\n", reF1ndTags[0])
+		}
+		// 检出标签
+		checkoutCmd := exec.Command("git", "checkout", "tags/"+reF1ndTags[0])
+		checkoutCmd.Dir = repoDir
+		if out, err := checkoutCmd.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("检出标签 %s 失败: %s, %v", reF1ndTags[0], string(out), err)
+		}
+		return reF1ndTags[0], nil
+	}
+
+	// 第二优先级：普通 semver 标签（排除 alpha/beta/rc）
+	var semverTags []string
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" || strings.Contains(t, "alpha") || strings.Contains(t, "beta") || strings.Contains(t, "rc") {
+			continue
+		}
+		semverTags = append(semverTags, t)
+	}
+	if len(semverTags) > 0 {
+		sort.Slice(semverTags, func(i, j int) bool {
+			return semverTags[i] > semverTags[j] // 降序
+		})
+		if verbose {
+			fmt.Printf("  找到最新稳定标签: %s\n", semverTags[0])
+		}
+		checkoutCmd := exec.Command("git", "checkout", "tags/"+semverTags[0])
+		checkoutCmd.Dir = repoDir
+		if out, err := checkoutCmd.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("检出标签 %s 失败: %s, %v", semverTags[0], string(out), err)
+		}
+		return semverTags[0], nil
+	}
+
+	// 第三优先级：HEAD
 	if verbose {
-		fmt.Printf("  reF1nd sing-box commit: %s\n", singboxCommit)
+		fmt.Println("  未找到标签，使用 HEAD")
 	}
-	return nil
+	headCmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	headCmd.Dir = repoDir
+	out, err = headCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("获取 HEAD 失败: %v", err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // getLatestVersion 从 GitHub API 获取最新版本号
