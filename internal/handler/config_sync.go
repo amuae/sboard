@@ -176,12 +176,9 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 		case "anytls":
 			userEntry["password"] = user.UUID
 		case "shadowsocks":
-			// Shadowsocks 2022 多用户需要 serverKey:userKey 格式
-			if strings.HasPrefix(node.SsMethod, "2022-") {
-				userEntry["password"] = node.SsPassword + ":" + generateSS2022UserKey(user.UUID, node.SsMethod)
-			} else {
-				userEntry["password"] = generateSS2022UserKey(user.UUID, node.SsMethod)
-			}
+			// Shadowsocks 用户密钥 = 单用户密钥（sing-box 的 password 字段只取用户密钥，
+			// 主密钥已在 inbound 级 password 字段设置）
+			userEntry["password"] = generateSS2022UserKey(user.UUID, node.SsMethod)
 		case "hysteria2":
 			if node.Hy2Password != "" {
 				userEntry["password"] = node.Hy2Password
@@ -677,12 +674,8 @@ func buildUserEntry(protocol, name, uuid, flow string, node *database.InboundNod
 	case "anytls":
 		userEntry["password"] = uuid
 	case "shadowsocks":
-		// Shadowsocks 2022 多用户需要 serverKey:userKey 格式
-		if strings.HasPrefix(node.SsMethod, "2022-") {
-			userEntry["password"] = node.SsPassword + ":" + generateSS2022UserKey(uuid, node.SsMethod)
-		} else {
-			userEntry["password"] = generateSS2022UserKey(uuid, node.SsMethod)
-		}
+		// Shadowsocks 用户密钥 = 单用户密钥（同第一处）
+		userEntry["password"] = generateSS2022UserKey(uuid, node.SsMethod)
 	case "hysteria2":
 		if node.Hy2Password != "" {
 			userEntry["password"] = node.Hy2Password
