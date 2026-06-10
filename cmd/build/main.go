@@ -376,7 +376,7 @@ func buildSingboxFromReF1nd(targetOS, goarch, goarm, targetPath string, verbose 
 	absTarget, _ := filepath.Abs(targetPath)
 	execArgs := []string{"build", "-v", "-trimpath"}
 	execArgs = append(execArgs, "-ldflags", fmt.Sprintf(
-		"-X 'github.com/sagernet/sing-box/constant.Version=ref1nd-%s' -s -w -buildid=", singboxVersion))
+		"-checklinkname=0 -X 'github.com/sagernet/sing-box/constant.Version=ref1nd-%s' -s -w -buildid=", singboxVersion))
 	execArgs = append(execArgs, "-tags", tags)
 	execArgs = append(execArgs, "-o", absTarget, "./cmd/sing-box")
 
@@ -387,7 +387,6 @@ func buildSingboxFromReF1nd(targetOS, goarch, goarm, targetPath string, verbose 
 		"GOOS="+targetOS,
 		"GOARCH="+goarch,
 		"GOTOOLCHAIN=local",
-		"GODEBUG=invalidgo:linknames=1", // tfo-go/v2 使用 go:linkname 引用 net.(*netFD).init
 	)
 	if goarm != "" {
 		cmd.Env = append(cmd.Env, "GOARM="+goarm)
