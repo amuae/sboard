@@ -20,11 +20,6 @@
               </router-link>
             </li>
             <li class="nav-item">
-              <router-link class="nav-link" :class="{ active: $route.path === '/external-nodes' }" to="/external-nodes" @click="closeNav">
-                <i class="bi bi-globe2"></i> 外部节点
-              </router-link>
-            </li>
-            <li class="nav-item">
               <router-link class="nav-link" :class="{ active: $route.path === '/servers' }" to="/servers" @click="closeNav">
                 <i class="bi bi-hdd-stack"></i> 服务器管理
               </router-link>
@@ -32,6 +27,11 @@
             <li class="nav-item">
               <router-link class="nav-link" :class="{ active: $route.path === '/subscription-config' }" to="/subscription-config" @click="closeNav">
                 <i class="bi bi-gear-wide-connected"></i> 订阅配置
+              </router-link>
+            </li>
+            <li class="nav-item">
+              <router-link class="nav-link" :class="{ active: $route.path === '/external-nodes' }" to="/external-nodes" @click="closeNav">
+                <i class="bi bi-globe2"></i> 外部节点
               </router-link>
             </li>
           </ul>
