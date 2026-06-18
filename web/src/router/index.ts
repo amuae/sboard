@@ -29,6 +29,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/external-nodes',
+    name: 'ExternalNodes',
+    component: () => import('@/views/ExternalNodes.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/subscription-config',
     name: 'SubscriptionConfig',
     component: () => import('@/views/SubscriptionConfig.vue'),

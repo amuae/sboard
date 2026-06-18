@@ -20,6 +20,11 @@
               </router-link>
             </li>
             <li class="nav-item">
+              <router-link class="nav-link" :class="{ active: $route.path === '/external-nodes' }" to="/external-nodes" @click="closeNav">
+                <i class="bi bi-globe2"></i> 外部节点
+              </router-link>
+            </li>
+            <li class="nav-item">
               <router-link class="nav-link" :class="{ active: $route.path === '/servers' }" to="/servers" @click="closeNav">
                 <i class="bi bi-hdd-stack"></i> 服务器管理
               </router-link>
