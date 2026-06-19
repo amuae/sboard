@@ -23,7 +23,7 @@ permissions:
 
 env:
   GO_VERSION: '1.25.10'
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
   ACTIONS_RUNNER_FORCED_ACTIONS_NODE_VERSION: node24
 
 jobs:
