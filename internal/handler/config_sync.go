@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -891,4 +892,47 @@ func buildOutboundTransport(ob *database.ServerOutbound) map[string]interface{} 
 	}
 
 	return transport
+}
+
+// ========== 通用配置指纹 — 防抖之外的第二道保险 ==========
+
+var (
+	lastUniversalHash   string
+	universalHashMu     sync.Mutex
+)
+
+// computeUniversalConfigHash 生成"通用配置"（不含各服务器落地出站）的 SHA256 哈希
+// 当此哈希不变时，全量 config push 可跳过（服务器落地出站变化走独立路径）
+func computeUniversalConfigHash() string {
+	var nodes []database.InboundNode
+	database.DB.Where("enabled = ?", true).Order("id ASC").Find(&nodes)
+
+	var allUsers []database.ProxyUser
+	today := time.Now().Format("2006-01-02")
+	database.DB.Where("enabled = ? AND expiry_date >= ?", 1, today).Find(&allUsers)
+
+	// 不传 serverOutbounds（空数组），只计算 nodes + users 的通用部分
+	config, err := generateServerSingBoxConfig(nodes, allUsers, nil)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(config)))
+}
+
+// configFingerprintChanged 检查通用配置是否变化，变化则更新缓存
+// 返回 true 表示需要推送（配置有变化或首次运行）
+func configFingerprintChanged() bool {
+	newHash := computeUniversalConfigHash()
+	if newHash == "" {
+		return false // 生成失败，保守跳过
+	}
+
+	universalHashMu.Lock()
+	defer universalHashMu.Unlock()
+
+	if newHash == lastUniversalHash {
+		return false // 通用配置未变，跳过
+	}
+	lastUniversalHash = newHash
+	return true
 }

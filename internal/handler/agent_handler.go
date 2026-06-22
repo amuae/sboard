@@ -399,6 +399,16 @@ func (h *AgentHub) BroadcastConfigUpdate() {
 
 // doSyncConfig 实际执行配置同步（由防抖定时器触发）
 func (h *AgentHub) doSyncConfig() {
+	// 第二道保险：通用配置指纹对比（除非强制推送，如服务器落地出站变化）
+	configPushForceMu.Lock()
+	force := configPushForce
+	configPushForce = false
+	configPushForceMu.Unlock()
+
+	if !force && !configFingerprintChanged() {
+		return // 通用配置未变且非强制推送，跳过
+	}
+
 	// 快速收集存活的 Agent 连接信息，尽快释放锁
 	h.mu.RLock()
 	aliveAgents := make([]struct {
@@ -459,6 +469,19 @@ func (h *AgentHub) doSyncConfig() {
 
 // BroadcastConfigUpdate 包级别导出函数，供外部调用
 func BroadcastConfigUpdate() {
+	agentHub.BroadcastConfigUpdate()
+}
+
+var (
+	configPushForce   bool
+	configPushForceMu sync.Mutex
+)
+
+// BroadcastConfigUpdateForce 强制推送配置（用于服务器落地出站等不改变通用配置的变化）
+func BroadcastConfigUpdateForce() {
+	configPushForceMu.Lock()
+	configPushForce = true
+	configPushForceMu.Unlock()
 	agentHub.BroadcastConfigUpdate()
 }
 

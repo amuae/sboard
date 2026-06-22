@@ -171,7 +171,7 @@ func (s *Server) handleCreateServerOutbound(c *gin.Context) {
 	}
 
 	// 广播配置更新到该服务器的 Agent
-	go agentHub.BroadcastConfigUpdate()
+	go BroadcastConfigUpdateForce()
 
 	successJSON(c, outbound)
 }
@@ -233,7 +233,7 @@ func (s *Server) handleUpdateServerOutbound(c *gin.Context) {
 	}
 
 	// 广播配置更新到该服务器的 Agent
-	go agentHub.BroadcastConfigUpdate()
+	go BroadcastConfigUpdateForce()
 
 	successJSON(c, outbound)
 }
@@ -262,7 +262,7 @@ func (s *Server) handleDeleteServerOutbound(c *gin.Context) {
 	reorderOutboundSlots(uint(serverID))
 
 	// 广播配置更新到所有在线 Agent
-	go agentHub.BroadcastConfigUpdate()
+	go BroadcastConfigUpdateForce()
 
 	successMsgJSON(c, "删除成功")
 }
@@ -294,7 +294,7 @@ func (s *Server) handleToggleServerOutbound(c *gin.Context) {
 	}
 
 	// 广播配置更新到该服务器的 Agent
-	go agentHub.BroadcastConfigUpdate()
+	go BroadcastConfigUpdateForce()
 
 	successJSON(c, outbound)
 }
