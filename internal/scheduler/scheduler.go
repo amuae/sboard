@@ -66,34 +66,18 @@ func (s *Scheduler) runPeriodically(interval time.Duration, task func(), runImme
 func (s *Scheduler) checkExpiredUsers() {
 	today := time.Now().Format("2006-01-02")
 
-	// 查找所有已启用但已到期的用户
-	var expiredUsers []database.ProxyUser
-	result := database.DB.Where("enabled = ? AND expiry_date < ?", 1, today).Find(&expiredUsers)
+	// 批量禁用所有已启用但已到期的用户
+	result := database.DB.Model(&database.ProxyUser{}).
+		Where("enabled = ? AND expiry_date < ?", 1, today).
+		Update("enabled", 0)
 
 	if result.Error != nil {
 		log.Printf("检查到期用户失败: %v", result.Error)
 		return
 	}
 
-	if len(expiredUsers) == 0 {
-		return
-	}
-
-	// 禁用到期用户
-	disabledCount := 0
-	for _, user := range expiredUsers {
-		user.Enabled = 0
-		if err := database.DB.Save(&user).Error; err != nil {
-			log.Printf("禁用用户 %s 失败: %v", user.Name, err)
-			continue
-		}
-		disabledCount++
-		log.Printf("用户 %s 已到期，已自动禁用", user.Name)
-	}
-
-	if disabledCount > 0 {
-		log.Printf("共禁用 %d 个到期用户，触发配置同步", disabledCount)
-		// 触发配置同步回调
+	if result.RowsAffected > 0 {
+		log.Printf("共禁用 %d 个到期用户，触发配置同步", result.RowsAffected)
 		if s.onConfigChange != nil {
 			go s.onConfigChange()
 		}

@@ -103,55 +103,68 @@ func autoMigrate() error {
 	return migrateUserExtraUUIDs()
 }
 
-// migrateUserExtraUUIDs 为老用户补充生成额外 UUID 并填充 UserExtraUUID 表
+// migrateUserExtraUUIDs 为老用户补充生成额外 UUID 并填充 UserExtraUUID 表（批量操作）
 func migrateUserExtraUUIDs() error {
+	// 1. 为 UUID1 为空的用户批量生成 10 个额外 UUID
 	var users []ProxyUser
-
-	// 1. 查找 UUID1 为空的用户（老用户没有额外 UUID），为其生成
 	if err := DB.Where("uuid1 IS NULL OR uuid1 = ''").Find(&users).Error; err != nil {
 		return err
 	}
 
-	for _, user := range users {
-		user.UUID1 = uuid.New().String()
-		user.UUID2 = uuid.New().String()
-		user.UUID3 = uuid.New().String()
-		user.UUID4 = uuid.New().String()
-		user.UUID5 = uuid.New().String()
-		user.UUID6 = uuid.New().String()
-		user.UUID7 = uuid.New().String()
-		user.UUID8 = uuid.New().String()
-		user.UUID9 = uuid.New().String()
-		user.UUID10 = uuid.New().String()
-
-		if err := DB.Save(&user).Error; err != nil {
-			log.Printf("为用户 %s 生成额外 UUID 失败: %v", user.Name, err)
-			continue
+	if len(users) > 0 {
+		type uuidUpdate struct {
+			ID    uint
+			UUIDs [10]string
 		}
-		log.Printf("已为用户 %s 生成 10 个额外 UUID", user.Name)
+		var updates []uuidUpdate
+		var extraUUIDRecords []UserExtraUUID
 
-		// 同步到 UserExtraUUID 表
-		uuids := []string{user.UUID1, user.UUID2, user.UUID3, user.UUID4, user.UUID5, user.UUID6, user.UUID7, user.UUID8, user.UUID9, user.UUID10}
-		for slot, uid := range uuids {
-			if uid != "" {
-				if err := DB.Create(&UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid}).Error; err != nil {
-					log.Printf("为用户 %s 同步额外 UUID slot %d 到关联表失败: %v", user.Name, slot+1, err)
-				}
+		for _, user := range users {
+			var uuids [10]string
+			for i := range uuids {
+				uuids[i] = uuid.New().String()
+			}
+			updates = append(updates, uuidUpdate{ID: user.ID, UUIDs: uuids})
+			for slot, uid := range uuids {
+				extraUUIDRecords = append(extraUUIDRecords, UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid})
 			}
 		}
+
+		// 批量更新 ProxyUser
+		for _, u := range updates {
+			DB.Model(&ProxyUser{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
+				"uuid1":  u.UUIDs[0],
+				"uuid2":  u.UUIDs[1],
+				"uuid3":  u.UUIDs[2],
+				"uuid4":  u.UUIDs[3],
+				"uuid5":  u.UUIDs[4],
+				"uuid6":  u.UUIDs[5],
+				"uuid7":  u.UUIDs[6],
+				"uuid8":  u.UUIDs[7],
+				"uuid9":  u.UUIDs[8],
+				"uuid10": u.UUIDs[9],
+			})
+		}
+
+		// 批量创建 UserExtraUUID
+		if len(extraUUIDRecords) > 0 {
+			DB.CreateInBatches(extraUUIDRecords, 100)
+		}
+		log.Printf("已为 %d 个用户批量生成额外 UUID", len(users))
 	}
 
-	// 2. 迁移已有 UUID1-UUID10 但尚未写入 UserExtraUUID 表的用户
+	// 2. 迁移已有 UUID1-UUID10 但尚未写入 UserExtraUUID 表的用户（批量）
 	return migrateExistingUserExtraUUIDs()
 }
 
-// migrateExistingUserExtraUUIDs 将已有 UUID1-UUID10 的用户数据同步到 UserExtraUUID 表
+// migrateExistingUserExtraUUIDs 将已有 UUID1-UUID10 的用户数据批量同步到 UserExtraUUID 表
 func migrateExistingUserExtraUUIDs() error {
 	var users []ProxyUser
 	if err := DB.Where("uuid1 IS NOT NULL AND uuid1 != ''").Find(&users).Error; err != nil {
 		return err
 	}
 
+	var records []UserExtraUUID
 	for _, user := range users {
 		// 检查是否已有 UserExtraUUID 记录
 		var count int64
@@ -160,15 +173,18 @@ func migrateExistingUserExtraUUIDs() error {
 			continue
 		}
 
-		uuids := []string{user.UUID1, user.UUID2, user.UUID3, user.UUID4, user.UUID5, user.UUID6, user.UUID7, user.UUID8, user.UUID9, user.UUID10}
+		uuids := []string{user.UUID1, user.UUID2, user.UUID3, user.UUID4, user.UUID5,
+			user.UUID6, user.UUID7, user.UUID8, user.UUID9, user.UUID10}
 		for slot, uid := range uuids {
 			if uid != "" {
-				if err := DB.Create(&UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid}).Error; err != nil {
-					log.Printf("为用户 %s (ID=%d) 迁移额外 UUID slot %d 失败: %v", user.Name, user.ID, slot+1, err)
-				}
+				records = append(records, UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid})
 			}
 		}
-		log.Printf("已为用户 %s (ID=%d) 迁移额外 UUID 到关联表", user.Name, user.ID)
+	}
+
+	if len(records) > 0 {
+		DB.CreateInBatches(records, 100)
+		log.Printf("已为 %d 个用户批量迁移额外 UUID 到关联表", len(users))
 	}
 
 	return nil

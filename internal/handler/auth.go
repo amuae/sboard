@@ -52,14 +52,15 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 
-	// 设置 cookie
+	// 设置 cookie（HTTPS-only 如果面板运行在 TLS 后）
+	isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 	c.SetCookie(
 		s.config.Security.SessionName,
 		token,
 		s.config.Security.JWTExpireHour*3600,
 		"/",
 		"",
-		false,
+		isSecure,
 		true,
 	)
 
@@ -187,6 +188,4 @@ func (s *Server) handleGetCurrentUser(c *gin.Context) {
 		"username": username,
 	})
 }
-
-// 占位符函数，需要在其他文件中实现
 

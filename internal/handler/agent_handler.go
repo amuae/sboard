@@ -802,10 +802,18 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 		return
 	}
 
-	// 立即返回，后台异步执行部署
+	// 立即返回，后台异步执行部署（最多 8 并发）
 	go func(aliveServers []aliveServer) {
+		sem := make(chan struct{}, 8) // 并发限制
+		var wg sync.WaitGroup
+
 		for _, srv := range aliveServers {
+			wg.Add(1)
+			sem <- struct{}{}
 			go func(srv aliveServer) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
 				// 生成配置
 				config, err := GenerateServerConfig(&srv.Server, "sing-box")
 				if err != nil {
@@ -829,6 +837,7 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 				agentHub.SendCommand(srv.Server.ID, deployCoreMsg, 5*time.Second)
 			}(srv)
 		}
+		wg.Wait()
 	}(aliveServers)
 
 	successJSON(c, gin.H{

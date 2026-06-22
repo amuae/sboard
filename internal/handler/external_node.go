@@ -76,7 +76,41 @@ func (s *Server) handleUpdateExternalNode(c *gin.Context) {
 		return
 	}
 
-	if err := database.DB.Model(&existing).Updates(updates).Error; err != nil {
+	// 使用 map 更新以正确处理零值（清空字段）
+	if err := database.DB.Model(&existing).Updates(map[string]interface{}{
+		"name":              updates.Name,
+		"protocol":          updates.Protocol,
+		"host":              updates.Host,
+		"port":              updates.Port,
+		"uuid":              updates.UUID,
+		"tls_enabled":       updates.TlsEnabled,
+		"server_name":       updates.ServerName,
+		"alpn":              updates.Alpn,
+		"reality_enabled":   updates.RealityEnabled,
+		"reality_server":    updates.RealityServer,
+		"reality_pubkey":    updates.RealityPubkey,
+		"reality_short_id":  updates.RealityShortId,
+		"transport_enabled": updates.TransportEnabled,
+		"transport_type":    updates.TransportType,
+		"ws_path":           updates.WsPath,
+		"grpc_service":      updates.GrpcService,
+		"transport_host":    updates.TransportHost,
+		"flow":              updates.Flow,
+		"ss_method":         updates.SsMethod,
+		"ss_password":       updates.SsPassword,
+		"ss_obfs_mode":      updates.SsObfsMode,
+		"ss_obfs_host":      updates.SsObfsHost,
+		"hy2_password":      updates.Hy2Password,
+		"hy2_up_mbps":       updates.Hy2UpMbps,
+		"hy2_down_mbps":     updates.Hy2DownMbps,
+		"hy2_obfs":          updates.Hy2Obfs,
+		"hy2_obfs_password": updates.Hy2ObfsPassword,
+		"level":             updates.Level,
+		"enabled":           updates.Enabled,
+		"sort_order":        updates.SortOrder,
+		"country":           updates.Country,
+		"notes":             updates.Notes,
+	}).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "更新节点失败")
 		return
 	}

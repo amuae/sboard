@@ -76,59 +76,18 @@ type ProxyUser struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
-// BeforeCreate 创建前自动生成UUID
+// BeforeCreate 创建前自动生成主UUID，初始化额外UUID缓存为空（不再预生成10个）
 func (u *ProxyUser) BeforeCreate(tx *gorm.DB) error {
 	if u.UUID == "" {
 		u.UUID = uuid.New().String()
 	}
-	// 生成 10 个额外 UUID（仅当为空时）— 保留在 UUID1-UUID10 列中以向后兼容
-	if u.UUID1 == "" {
-		u.UUID1 = uuid.New().String()
-	}
-	if u.UUID2 == "" {
-		u.UUID2 = uuid.New().String()
-	}
-	if u.UUID3 == "" {
-		u.UUID3 = uuid.New().String()
-	}
-	if u.UUID4 == "" {
-		u.UUID4 = uuid.New().String()
-	}
-	if u.UUID5 == "" {
-		u.UUID5 = uuid.New().String()
-	}
-	if u.UUID6 == "" {
-		u.UUID6 = uuid.New().String()
-	}
-	if u.UUID7 == "" {
-		u.UUID7 = uuid.New().String()
-	}
-	if u.UUID8 == "" {
-		u.UUID8 = uuid.New().String()
-	}
-	if u.UUID9 == "" {
-		u.UUID9 = uuid.New().String()
-	}
-	if u.UUID10 == "" {
-		u.UUID10 = uuid.New().String()
-	}
+	// 懒加载：初始化空槽位缓存，UUID 在首次 SetExtraUUID 时按需生成
+	u.extraUUIDs = make([]string, 10)
 	return nil
 }
 
-// AfterCreate 创建后将额外 UUID 同步到 UserExtraUUID 关联表
+// AfterCreate 创建后无操作 — 额外 UUID 由 SetExtraUUID 按需创建到 UserExtraUUID 表
 func (u *ProxyUser) AfterCreate(tx *gorm.DB) error {
-	uuids := []string{u.UUID1, u.UUID2, u.UUID3, u.UUID4, u.UUID5, u.UUID6, u.UUID7, u.UUID8, u.UUID9, u.UUID10}
-	for slot, uid := range uuids {
-		if uid != "" {
-			if err := tx.Create(&UserExtraUUID{
-				UserID: u.ID,
-				Slot:   slot + 1,
-				UUID:   uid,
-			}).Error; err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -182,16 +141,24 @@ func (u *ProxyUser) ensureExtraUUIDsLoaded() {
 	}
 }
 
-// SetExtraUUID 设置指定槽位的额外 UUID（同时更新关联表和运行时缓存）
+// SetExtraUUID 设置指定槽位的额外 UUID（懒加载：首次设置时自动生成）
 func (u *ProxyUser) SetExtraUUID(slot int, val string) error {
 	if slot < 1 || slot > 10 {
 		return fmt.Errorf("slot must be between 1 and 10, got %d", slot)
 	}
 
 	u.ensureExtraUUIDsLoaded()
-	u.extraUUIDs[slot-1] = val
 
-	// 同步更新 UUID1-UUID10 向后兼容字段
+	// 懒加载：如果槽位尚无 UUID 且调用方未提供，自动生成
+	if u.extraUUIDs[slot-1] == "" && val == "" {
+		val = uuid.New().String()
+	}
+
+	if val != "" {
+		u.extraUUIDs[slot-1] = val
+	}
+
+	// 向后兼容：同步到 UUID1-UUID10 列
 	switch slot {
 	case 1:
 		u.UUID1 = val
@@ -215,7 +182,7 @@ func (u *ProxyUser) SetExtraUUID(slot int, val string) error {
 		u.UUID10 = val
 	}
 
-	// 如果尚未持久化，仅更新内存缓存
+	// 尚未持久化时仅更新内存缓存
 	if u.ID == 0 {
 		return nil
 	}
@@ -328,6 +295,8 @@ type ExternalNode struct {
 	// Shadowsocks
 	SsMethod   string `gorm:"size:50" json:"ss_method"`
 	SsPassword string `gorm:"size:100" json:"ss_password"`
+	SsObfsMode string `gorm:"size:20" json:"ss_obfs_mode"` // tls/http (reF1nd)
+	SsObfsHost string `gorm:"size:100" json:"ss_obfs_host"`
 
 	// Hysteria2
 	Hy2Password     string `gorm:"size:100" json:"hy2_password"`
@@ -397,7 +366,7 @@ type Server struct {
 	Port      int    `gorm:"default:22" json:"port"`
 	Category  string `gorm:"size:20;not null;default:direct" json:"category"` // direct/relay/home
 	Enabled   int    `gorm:"default:1" json:"enabled"`
-	SortOrder int    `gorm:"default:0" json:"sort_order"` // 排序顺序，越小越前`
+	SortOrder int    `gorm:"default:0" json:"sort_order"` // 排序顺序，越小越前
 
 	// 节点域名（用于订阅 DNS 解析，不随 IP 变化）
 	NodeDomain string `gorm:"size:200" json:"node_domain"`
