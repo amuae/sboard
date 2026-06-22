@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // InitSystem 表示 Init 系统类型
@@ -237,8 +236,6 @@ func (s *ServiceManager) createOpenWrtUser(username string, uid int, homeDir str
 
 // findAvailableUID 在 2000-59999 范围内随机查找一个未被使用的 UID
 func findAvailableUID() (int, error) {
-	// 初始化随机数种子
-	rand.Seed(time.Now().UnixNano())
 
 	usedUIDs := make(map[int]bool)
 

@@ -2,6 +2,8 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
+	"context"
 	"crypto/md5"
 	"embed"
 	"encoding/base64"
@@ -36,8 +38,8 @@ import (
 var embeddedConfigs embed.FS
 
 var (
-	Version        = "1.0.0"
-	serviceManager = NewServiceManager() // 平台特定的服务管理器
+	Version        = "dev" // 构建时通过 -ldflags "-X main.Version=..." 注入
+	serviceManager = NewServiceManager()
 )
 
 // Agent 配置
@@ -510,28 +512,41 @@ func (a *Agent) handleCommand(msg *Message) (*Message, error) {
 	}
 
 	timeout := time.Duration(data.Timeout) * time.Second
-	if timeout == 0 {
+	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	start := time.Now()
-	cmd := exec.Command(data.Command, data.Args...)
+	cmd := exec.CommandContext(ctx, data.Command, data.Args...)
 	if data.WorkDir != "" {
 		cmd.Dir = data.WorkDir
 	}
 
-	stdout, _ := cmd.Output()
+	// 分别捕获 stdout 和 stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	err := cmd.Run()
 	duration := time.Since(start).Milliseconds()
 
 	exitCode := 0
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			// 超时或其他错误
+			exitCode = -1
+		}
 	}
 
 	respData := map[string]interface{}{
 		"exit_code": exitCode,
-		"stdout":    string(stdout),
-		"stderr":    "",
+		"stdout":    stdoutBuf.String(),
+		"stderr":    stderrBuf.String(),
 		"duration":  duration,
 	}
 
@@ -699,9 +714,9 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 		return
 	}
 
-	// 备份旧配置
+	// 备份旧配置（带时间戳，避免覆盖之前的备份）
 	if _, err := os.Stat(configPath); err == nil {
-		backupPath := configPath + ".bak"
+		backupPath := configPath + ".bak." + time.Now().Format("20060102150405")
 		os.Rename(configPath, backupPath)
 	}
 
@@ -710,7 +725,7 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 		log.Printf("创建配置目录失败: %v", err)
 		return
 	}
-	if err := os.WriteFile(configPath, []byte(data.Content), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(data.Content), 0600); err != nil {
 		log.Printf("写入配置文件失败: %v", err)
 		return
 	}
@@ -763,24 +778,32 @@ func (a *Agent) handleRestart(msg *Message) (*Message, error) {
 	}, nil
 }
 
-// getLocalIP 获取本机公网 IPv4 和 IPv6，分别通过 API 获取
+// getLocalIP 并发获取本机公网 IPv4 和 IPv6
 func getLocalIP() (ipv4, ipv6 string) {
-	// 获取公网 IPv4
-	ipv4 = getPublicIPFromAPI()
-	if ipv4 != "" {
-		log.Printf("[IP] 成功获取公网 IPv4: %s", ipv4)
-	} else {
-		log.Printf("[IP] 无法获取公网 IPv4")
-	}
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-	// 获取公网 IPv6
-	ipv6 = getPublicIPv6FromAPI()
-	if ipv6 != "" {
-		log.Printf("[IP] 成功获取公网 IPv6: %s", ipv6)
-	} else {
-		log.Printf("[IP] 无法获取公网 IPv6")
-	}
+	go func() {
+		defer wg.Done()
+		ipv4 = getPublicIPFromAPI()
+		if ipv4 != "" {
+			log.Printf("[IP] 成功获取公网 IPv4: %s", ipv4)
+		} else {
+			log.Printf("[IP] 无法获取公网 IPv4")
+		}
+	}()
 
+	go func() {
+		defer wg.Done()
+		ipv6 = getPublicIPv6FromAPI()
+		if ipv6 != "" {
+			log.Printf("[IP] 成功获取公网 IPv6: %s", ipv6)
+		} else {
+			log.Printf("[IP] 无法获取公网 IPv6")
+		}
+	}()
+
+	wg.Wait()
 	return
 }
 
@@ -1093,7 +1116,7 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	// 7. 用指令中的配置内容覆盖配置文件
 	if data.Config != "" {
 		configPath := filepath.Join(targetPath, configFileName)
-		if err := os.WriteFile(configPath, []byte(data.Config), 0644); err != nil {
+		if err := os.WriteFile(configPath, []byte(data.Config), 0600); err != nil {
 			return nil, fmt.Errorf("写入配置文件失败: %v", err)
 		}
 		log.Printf("  更新配置文件: %s", configPath)
