@@ -570,6 +570,18 @@ func (a *Agent) handleDeployFile(msg *Message) (*Message, error) {
 		return nil, err
 	}
 
+	// 路径穿越防护：解析为绝对路径并限定在允许的目录内
+	allowedDirs := []string{
+		a.config.ConfigDir,
+		a.config.CorePath,
+		filepath.Dir(a.config.CorePath),
+		"/opt/sboard", // 默认安装根路径
+	}
+	safePath, err := safeResolvePath(data.Path, allowedDirs)
+	if err != nil {
+		return nil, fmt.Errorf("路径不安全: %v", err)
+	}
+
 	// 解码内容
 	content, err := base64.StdEncoding.DecodeString(data.Content)
 	if err != nil {
@@ -578,14 +590,14 @@ func (a *Agent) handleDeployFile(msg *Message) (*Message, error) {
 
 	// 备份
 	if data.Backup {
-		if _, err := os.Stat(data.Path); err == nil {
-			backupPath := data.Path + ".bak." + time.Now().Format("20060102150405")
-			os.Rename(data.Path, backupPath)
+		if _, err := os.Stat(safePath); err == nil {
+			backupPath := safePath + ".bak." + time.Now().Format("20060102150405")
+			os.Rename(safePath, backupPath)
 		}
 	}
 
 	// 确保目录存在
-	dir := filepath.Dir(data.Path)
+	dir := filepath.Dir(safePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("创建目录失败: %v", err)
 	}
@@ -595,20 +607,20 @@ func (a *Agent) handleDeployFile(msg *Message) (*Message, error) {
 	if data.Mode > 0 {
 		mode = os.FileMode(data.Mode)
 	}
-	if err := os.WriteFile(data.Path, content, mode); err != nil {
+	if err := os.WriteFile(safePath, content, mode); err != nil {
 		return nil, fmt.Errorf("写入文件失败: %v", err)
 	}
 
-	log.Printf("已部署文件: %s", data.Path)
+	log.Printf("已部署文件: %s", safePath)
 
-	// 重启服务 (使用平台特定的服务管理器)
+	// 重启服务
 	if data.RestartSvc != "" {
 		serviceManager.RestartService(data.RestartSvc)
 	}
 
 	respData := map[string]interface{}{
 		"success": true,
-		"path":    data.Path,
+		"path":    safePath,
 	}
 	rawData, _ := json.Marshal(respData)
 	return &Message{
@@ -616,6 +628,47 @@ func (a *Agent) handleDeployFile(msg *Message) (*Message, error) {
 		Timestamp: time.Now().Unix(),
 		Data:      rawData,
 	}, nil
+}
+
+// safeResolvePath 将路径解析为绝对路径，并校验其在允许的目录范围内
+func safeResolvePath(target string, allowedDirs []string) (string, error) {
+	if target == "" {
+		return "", fmt.Errorf("路径为空")
+	}
+
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("无法解析路径: %v", err)
+	}
+
+	// 解析符号链接后再次确保是绝对路径
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		// 目标可能尚不存在，使用 Abs 的结果
+		resolved = abs
+	}
+
+	// 确保 resolved 仍为绝对路径
+	if !filepath.IsAbs(resolved) {
+		return "", fmt.Errorf("解析后不是绝对路径: %s", resolved)
+	}
+
+	// 检查是否在允许的目录范围内
+	for _, base := range allowedDirs {
+		if base == "" {
+			continue
+		}
+		baseAbs, err := filepath.Abs(base)
+		if err != nil {
+			continue
+		}
+		// 确保 resolved 以 baseAbs 开头（用分隔符防止 /opt/sboard2 匹配 /opt/sboard）
+		if strings.HasPrefix(resolved, baseAbs+string(filepath.Separator)) || resolved == baseAbs {
+			return resolved, nil
+		}
+	}
+
+	return "", fmt.Errorf("路径 %s 不在允许的目录范围内", resolved)
 }
 
 func (a *Agent) handleDeployDir(msg *Message) (*Message, error) {
@@ -630,21 +683,33 @@ func (a *Agent) handleDeployDir(msg *Message) (*Message, error) {
 		return nil, err
 	}
 
+	// 路径穿越防护
+	allowedDirs := []string{
+		a.config.ConfigDir,
+		a.config.CorePath,
+		filepath.Dir(a.config.CorePath),
+		"/opt/sboard",
+	}
+	safePath, err := safeResolvePath(data.Path, allowedDirs)
+	if err != nil {
+		return nil, fmt.Errorf("路径不安全: %v", err)
+	}
+
 	// 备份
 	if data.Backup {
-		if _, err := os.Stat(data.Path); err == nil {
-			backupPath := data.Path + ".bak." + time.Now().Format("20060102150405")
-			os.Rename(data.Path, backupPath)
+		if _, err := os.Stat(safePath); err == nil {
+			backupPath := safePath + ".bak." + time.Now().Format("20060102150405")
+			os.Rename(safePath, backupPath)
 		}
 	}
 
 	// 清空目录
 	if data.Clean {
-		os.RemoveAll(data.Path)
+		os.RemoveAll(safePath)
 	}
 
 	// 创建目录
-	if err := os.MkdirAll(data.Path, 0755); err != nil {
+	if err := os.MkdirAll(safePath, 0755); err != nil {
 		return nil, fmt.Errorf("创建目录失败: %v", err)
 	}
 
@@ -655,7 +720,7 @@ func (a *Agent) handleDeployDir(msg *Message) (*Message, error) {
 			continue
 		}
 
-		filePath := filepath.Join(data.Path, filename)
+		filePath := filepath.Join(safePath, filename)
 
 		// 确保子目录存在
 		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
@@ -670,11 +735,11 @@ func (a *Agent) handleDeployDir(msg *Message) (*Message, error) {
 		os.WriteFile(filePath, content, mode)
 	}
 
-	log.Printf("已部署目录: %s (%d 个文件)", data.Path, len(data.Files))
+	log.Printf("已部署目录: %s (%d 个文件)", safePath, len(data.Files))
 
 	respData := map[string]interface{}{
 		"success": true,
-		"path":    data.Path,
+		"path":    safePath,
 		"count":   len(data.Files),
 	}
 	rawData, _ := json.Marshal(respData)
@@ -704,10 +769,18 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 	if data.TargetPath != "" {
 		configDir = data.TargetPath
 	}
+
+	// 路径穿越防护：限制写入在允许的目录范围
+	allowedDirs := []string{a.config.ConfigDir, a.config.CorePath, filepath.Dir(a.config.CorePath), "/opt/sboard"}
+	safeDir, err := safeResolvePath(configDir, allowedDirs)
+	if err != nil {
+		log.Printf("配置目录不安全: %v", err)
+		return
+	}
 	coreType := strings.ToLower(data.ConfigType)
 	switch coreType {
 	case "sing-box":
-		configPath = filepath.Join(configDir, "config.json")
+		configPath = filepath.Join(safeDir, "config.json")
 		serviceName = "sing-box"
 	default:
 		log.Printf("未知配置类型: %s", data.ConfigType)
@@ -1001,7 +1074,15 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 		targetPath = serviceManager.GetDefaultInstallPath(data.CoreType)
 	}
 
-	log.Printf("开始部署核心: %s -> %s (平台: %s/%s)", data.CoreType, targetPath, runtime.GOOS, runtime.GOARCH)
+	// 路径穿越防护
+	allowedDirs := []string{a.config.ConfigDir, a.config.CorePath, filepath.Dir(a.config.CorePath), "/opt/sboard"}
+	var safePath string
+	safePath, err1 := safeResolvePath(targetPath, allowedDirs)
+	if err1 != nil {
+		return nil, fmt.Errorf("目标路径不安全: %v", err1)
+	}
+
+	log.Printf("开始部署核心: %s -> %s (平台: %s/%s)", data.CoreType, safePath, runtime.GOOS, runtime.GOARCH)
 
 	// 1. 确定嵌入资源路径和文件名
 	var embedPath string
@@ -1017,12 +1098,12 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	}
 
 	// 2. 创建目标目录
-	if err := os.MkdirAll(targetPath, 0755); err != nil {
+	if err := os.MkdirAll(safePath, 0755); err != nil {
 		return nil, fmt.Errorf("创建目标目录失败: %v", err)
 	}
 
 	// 3. 检查二进制文件是否存在（已有或需要从嵌入资源复制）
-	binaryPath := filepath.Join(targetPath, binaryName)
+	binaryPath := filepath.Join(safePath, binaryName)
 	binaryExists := false
 	if _, err := os.Stat(binaryPath); err == nil {
 		binaryExists = true
@@ -1068,7 +1149,7 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 			targetFileName = relPath
 		}
 
-		targetFile := filepath.Join(targetPath, targetFileName)
+		targetFile := filepath.Join(safePath, targetFileName)
 
 		if d.IsDir() {
 			return os.MkdirAll(targetFile, 0755)
@@ -1115,7 +1196,7 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 
 	// 7. 用指令中的配置内容覆盖配置文件
 	if data.Config != "" {
-		configPath := filepath.Join(targetPath, configFileName)
+		configPath := filepath.Join(safePath, configFileName)
 		if err := os.WriteFile(configPath, []byte(data.Config), 0600); err != nil {
 			return nil, fmt.Errorf("写入配置文件失败: %v", err)
 		}
@@ -1124,7 +1205,7 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 
 	// 5. 安装并启动服务 (使用平台特定的 ServiceManager)
 	log.Printf("  安装服务: %s", serviceName)
-	if err := serviceManager.InstallService(serviceName, targetPath, data.CoreType); err != nil {
+	if err := serviceManager.InstallService(serviceName, safePath, data.CoreType); err != nil {
 		return nil, fmt.Errorf("安装服务失败: %v", err)
 	}
 
@@ -1154,7 +1235,7 @@ func (a *Agent) handleDeployCore(msg *Message) (*Message, error) {
 	respData := map[string]interface{}{
 		"success":      true,
 		"core_type":    data.CoreType,
-		"target_path":  targetPath,
+		"target_path":  safePath,
 		"service_name": serviceName,
 		"running":      currentRunning,
 		"platform":     runtime.GOOS + "/" + runtime.GOARCH,
