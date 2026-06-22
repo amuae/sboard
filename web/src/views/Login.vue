@@ -143,6 +143,16 @@ const handleOAuthError = () => {
 }
 
 onMounted(() => {
+  // 清除过期 token
+  const token = localStorage.getItem('token')
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      if (payload.exp && Date.now() >= payload.exp * 1000) {
+        localStorage.removeItem('token')
+      }
+    } catch {}
+  }
   fetchOAuthProviders()
   handleOAuthError()
 })

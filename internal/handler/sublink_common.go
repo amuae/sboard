@@ -105,7 +105,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 
 	// 验证用户
 	var user database.ProxyUser
-	if err := database.DB.Where("uuid = ? AND enabled = ?", userUUID, 1).First(&user).Error; err != nil {
+	if err := database.GetDB().Where("uuid = ? AND enabled = ?", userUUID, 1).First(&user).Error; err != nil {
 		c.String(http.StatusNotFound, "用户不存在或已禁用")
 		return
 	}
@@ -119,7 +119,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 
 	// 获取用户关联的节点
 	var userNodeRelations []database.NodeUserRelation
-	database.DB.Where("user_id = ?", user.ID).Find(&userNodeRelations)
+	database.GetDB().Where("user_id = ?", user.ID).Find(&userNodeRelations)
 
 	// 构建用户有权访问的节点 ID 集合
 	userNodeIDs := make(map[uint]bool)
@@ -134,7 +134,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 		for id := range userNodeIDs {
 			nodeIDs = append(nodeIDs, id)
 		}
-		database.DB.Where("id IN ? AND enabled = ?", nodeIDs, 1).Find(&userNodes)
+		database.GetDB().Where("id IN ? AND enabled = ?", nodeIDs, 1).Find(&userNodes)
 	}
 
 	// 按节点标签（tag）过滤节点
@@ -162,7 +162,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 
 	// 获取外部节点（按用户等级过滤）
 	var externalNodes []database.ExternalNode
-	extQuery := database.DB.Where("enabled = ?", true)
+	extQuery := database.GetDB().Where("enabled = ?", true)
 	extQuery.Order("sort_order ASC, id ASC").Find(&externalNodes)
 
 	// 按等级过滤
@@ -181,7 +181,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 
 	// 获取服务器（按排序顺序）
 	var servers []database.Server
-	query := database.DB.Where("enabled = ?", 1).Order("sort_order ASC, id ASC")
+	query := database.GetDB().Where("enabled = ?", 1).Order("sort_order ASC, id ASC")
 	if serverIDStr != "" {
 		query = query.Where("id = ?", serverIDStr)
 	}
@@ -202,7 +202,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 	serverNodeConfigs := make(map[uint]map[uint]*database.ServerNodeConfig)
 	for _, server := range servers {
 		var nodeConfigs []database.ServerNodeConfig
-		database.DB.Where("server_id = ?", server.ID).Find(&nodeConfigs)
+		database.GetDB().Where("server_id = ?", server.ID).Find(&nodeConfigs)
 		if len(nodeConfigs) > 0 {
 			serverNodeConfigs[server.ID] = make(map[uint]*database.ServerNodeConfig)
 			for i := range nodeConfigs {
@@ -215,7 +215,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 	serverOutbounds := make(map[uint][]database.ServerOutbound)
 	for _, server := range servers {
 		var outbounds []database.ServerOutbound
-		database.DB.Where("server_id = ? AND enabled = ?", server.ID, true).Order("slot ASC").Find(&outbounds)
+		database.GetDB().Where("server_id = ? AND enabled = ?", server.ID, true).Order("slot ASC").Find(&outbounds)
 		if len(outbounds) > 0 {
 			serverOutbounds[server.ID] = outbounds
 		}

@@ -57,14 +57,14 @@ func (s *Server) handleListServerOutbounds(c *gin.Context) {
 
 	// 检查服务器是否存在
 	var server database.Server
-	if err := database.DB.First(&server, serverID).Error; err != nil {
+	if err := database.GetDB().First(&server, serverID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
 
 	// 获取服务器的所有落地出站（按槽位排序）
 	var outbounds []database.ServerOutbound
-	database.DB.Where("server_id = ?", serverID).Order("slot ASC").Find(&outbounds)
+	database.GetDB().Where("server_id = ?", serverID).Order("slot ASC").Find(&outbounds)
 
 	successJSON(c, outbounds)
 }
@@ -84,7 +84,7 @@ func (s *Server) handleGetServerOutbound(c *gin.Context) {
 	}
 
 	var outbound database.ServerOutbound
-	if err := database.DB.Where("server_id = ? AND slot = ?", serverID, slot).First(&outbound).Error; err != nil {
+	if err := database.GetDB().Where("server_id = ? AND slot = ?", serverID, slot).First(&outbound).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "出站配置不存在")
 		return
 	}
@@ -102,7 +102,7 @@ func (s *Server) handleCreateServerOutbound(c *gin.Context) {
 
 	// 检查服务器是否存在
 	var server database.Server
-	if err := database.DB.First(&server, serverID).Error; err != nil {
+	if err := database.GetDB().First(&server, serverID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -115,7 +115,7 @@ func (s *Server) handleCreateServerOutbound(c *gin.Context) {
 
 	// 查找下一个可用槽位
 	var existingOutbounds []database.ServerOutbound
-	database.DB.Where("server_id = ?", serverID).Order("slot ASC").Find(&existingOutbounds)
+	database.GetDB().Where("server_id = ?", serverID).Order("slot ASC").Find(&existingOutbounds)
 
 	if len(existingOutbounds) >= MaxOutboundSlots {
 		errorJSON(c, http.StatusBadRequest, "已达到最大落地出站数量限制(10个)")
@@ -165,7 +165,7 @@ func (s *Server) handleCreateServerOutbound(c *gin.Context) {
 		WsHost:   req.WsHost,
 	}
 
-	if err := database.DB.Create(&outbound).Error; err != nil {
+	if err := database.GetDB().Create(&outbound).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "创建失败")
 		return
 	}
@@ -191,7 +191,7 @@ func (s *Server) handleUpdateServerOutbound(c *gin.Context) {
 	}
 
 	var outbound database.ServerOutbound
-	if err := database.DB.Where("server_id = ? AND slot = ?", serverID, slot).First(&outbound).Error; err != nil {
+	if err := database.GetDB().Where("server_id = ? AND slot = ?", serverID, slot).First(&outbound).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "出站配置不存在")
 		return
 	}
@@ -227,7 +227,7 @@ func (s *Server) handleUpdateServerOutbound(c *gin.Context) {
 	outbound.WsPath = req.WsPath
 	outbound.WsHost = req.WsHost
 
-	if err := database.DB.Save(&outbound).Error; err != nil {
+	if err := database.GetDB().Save(&outbound).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -252,7 +252,7 @@ func (s *Server) handleDeleteServerOutbound(c *gin.Context) {
 		return
 	}
 
-	result := database.DB.Unscoped().Where("server_id = ? AND slot = ?", serverID, slot).Delete(&database.ServerOutbound{})
+	result := database.GetDB().Unscoped().Where("server_id = ? AND slot = ?", serverID, slot).Delete(&database.ServerOutbound{})
 	if result.RowsAffected == 0 {
 		errorJSON(c, http.StatusNotFound, "出站配置不存在")
 		return
@@ -282,13 +282,13 @@ func (s *Server) handleToggleServerOutbound(c *gin.Context) {
 	}
 
 	var outbound database.ServerOutbound
-	if err := database.DB.Where("server_id = ? AND slot = ?", serverID, slot).First(&outbound).Error; err != nil {
+	if err := database.GetDB().Where("server_id = ? AND slot = ?", serverID, slot).First(&outbound).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "出站配置不存在")
 		return
 	}
 
 	outbound.Enabled = !outbound.Enabled
-	if err := database.DB.Save(&outbound).Error; err != nil {
+	if err := database.GetDB().Save(&outbound).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -302,12 +302,12 @@ func (s *Server) handleToggleServerOutbound(c *gin.Context) {
 // reorderOutboundSlots 重新排序槽位（删除后从1开始连续编号）
 func reorderOutboundSlots(serverID uint) {
 	var outbounds []database.ServerOutbound
-	database.DB.Where("server_id = ?", serverID).Order("slot ASC").Find(&outbounds)
+	database.GetDB().Where("server_id = ?", serverID).Order("slot ASC").Find(&outbounds)
 
 	for i, ob := range outbounds {
 		newSlot := i + 1
 		if ob.Slot != newSlot {
-			database.DB.Model(&ob).Update("slot", newSlot)
+			database.GetDB().Model(&ob).Update("slot", newSlot)
 		}
 	}
 }

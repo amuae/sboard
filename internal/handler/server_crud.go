@@ -52,7 +52,7 @@ type UpdateServerRequest struct {
 func (s *Server) handleListServers(c *gin.Context) {
 	var servers []database.Server
 
-	query := database.DB.Order("sort_order ASC, id ASC")
+	query := database.GetDB().Order("sort_order ASC, id ASC")
 
 	// 支持分类过滤
 	if category := c.Query("category"); category != "" {
@@ -90,10 +90,10 @@ func (s *Server) handleListServers(c *gin.Context) {
 
 	// 获取统计信息
 	var total int64
-	database.DB.Model(&database.Server{}).Count(&total)
+	database.GetDB().Model(&database.Server{}).Count(&total)
 
 	var enabledCount int64
-	database.DB.Model(&database.Server{}).Where("enabled = ?", 1).Count(&enabledCount)
+	database.GetDB().Model(&database.Server{}).Where("enabled = ?", 1).Count(&enabledCount)
 
 	successJSON(c, gin.H{
 		"servers": servers,
@@ -125,7 +125,7 @@ type ServerStatus struct {
 // handleGetAllServersStatus 批量获取所有服务器状态
 func (s *Server) handleGetAllServersStatus(c *gin.Context) {
 	var servers []database.Server
-	if err := database.DB.Select("id, agent_online, cpu_usage, mem_usage, disk_usage, net_in, net_out, monthly_in, monthly_out").Find(&servers).Error; err != nil {
+	if err := database.GetDB().Select("id, agent_online, cpu_usage, mem_usage, disk_usage, net_in, net_out, monthly_in, monthly_out").Find(&servers).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "查询失败")
 		return
 	}
@@ -161,14 +161,14 @@ func (s *Server) handleGetServer(c *gin.Context) {
 	}
 
 	var server database.Server
-	if err := database.DB.First(&server, id).Error; err != nil {
+	if err := database.GetDB().First(&server, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
 
 	// 获取服务器的节点配置
 	var nodeConfigs []database.ServerNodeConfig
-	database.DB.Where("server_id = ?", id).Preload("Node").Find(&nodeConfigs)
+	database.GetDB().Where("server_id = ?", id).Preload("Node").Find(&nodeConfigs)
 
 	successJSON(c, gin.H{
 		"server":       server,
@@ -194,7 +194,7 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 
 	// 检查名称是否已存在
 	var count int64
-	database.DB.Model(&database.Server{}).Where("name = ?", req.Name).Count(&count)
+	database.GetDB().Model(&database.Server{}).Where("name = ?", req.Name).Count(&count)
 	if count > 0 {
 		errorJSON(c, http.StatusBadRequest, "服务器名称已存在")
 		return
@@ -216,7 +216,7 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 		Notes:      req.Notes,
 	}
 
-	if err := database.DB.Create(&server).Error; err != nil {
+	if err := database.GetDB().Create(&server).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "创建失败")
 		return
 	}
@@ -233,7 +233,7 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 	}
 
 	var server database.Server
-	if err := database.DB.First(&server, id).Error; err != nil {
+	if err := database.GetDB().First(&server, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -247,7 +247,7 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 	// 如果有新名称，检查是否重复
 	if req.Name != "" && req.Name != server.Name {
 		var count int64
-		database.DB.Model(&database.Server{}).Where("name = ? AND id != ?", req.Name, id).Count(&count)
+		database.GetDB().Model(&database.Server{}).Where("name = ? AND id != ?", req.Name, id).Count(&count)
 		if count > 0 {
 			errorJSON(c, http.StatusBadRequest, "服务器名称已存在")
 			return
@@ -274,15 +274,13 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 	server.Node1 = req.Node1
 	server.Node2 = req.Node2
 	server.Node3 = req.Node3
-	// DNS 解析策略直接赋值（none/ipv4/ipv6 都是有效值）
+	// DNS 解析策略（只在显式传值时更新）
 	if req.DnsResolve != "" {
 		server.DnsResolve = req.DnsResolve
-	} else {
-		server.DnsResolve = "ipv4"
 	}
 	server.Notes = req.Notes
 
-	if err := database.DB.Save(&server).Error; err != nil {
+	if err := database.GetDB().Save(&server).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存失败")
 		return
 	}
@@ -299,9 +297,9 @@ func (s *Server) handleDeleteServer(c *gin.Context) {
 	}
 
 	// 同时删除关联的节点配置
-	database.DB.Unscoped().Where("server_id = ?", id).Delete(&database.ServerNodeConfig{})
+	database.GetDB().Unscoped().Where("server_id = ?", id).Delete(&database.ServerNodeConfig{})
 
-	result := database.DB.Unscoped().Delete(&database.Server{}, id)
+	result := database.GetDB().Unscoped().Delete(&database.Server{}, id)
 	if result.Error != nil {
 		errorJSON(c, http.StatusInternalServerError, "删除失败")
 		return
@@ -327,7 +325,7 @@ func (s *Server) handleReorderServers(c *gin.Context) {
 
 	// 批量更新排序
 	for i, id := range req.IDs {
-		database.DB.Model(&database.Server{}).Where("id = ?", id).Update("sort_order", i)
+		database.GetDB().Model(&database.Server{}).Where("id = ?", id).Update("sort_order", i)
 	}
 
 	successMsgJSON(c, "排序更新成功")
@@ -358,7 +356,7 @@ func (s *Server) handleSetServerNodes(c *gin.Context) {
 	}
 
 	var server database.Server
-	if err := database.DB.First(&server, id).Error; err != nil {
+	if err := database.GetDB().First(&server, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -372,7 +370,7 @@ func (s *Server) handleSetServerNodes(c *gin.Context) {
 	}
 
 	// 删除旧配置
-	database.DB.Unscoped().Where("server_id = ?", id).Delete(&database.ServerNodeConfig{})
+	database.GetDB().Unscoped().Where("server_id = ?", id).Delete(&database.ServerNodeConfig{})
 
 	// 创建新配置
 	for _, cfgReq := range req.Configs {
@@ -391,7 +389,7 @@ func (s *Server) handleSetServerNodes(c *gin.Context) {
 			OutboundUsername: cfgReq.OutboundUsername,
 			OutboundSni:      cfgReq.OutboundSni,
 		}
-		database.DB.Create(&config)
+		database.GetDB().Create(&config)
 	}
 
 	successMsgJSON(c, "节点配置已更新")
@@ -414,7 +412,7 @@ func (s *Server) handleDeployServer(c *gin.Context) {
 	}
 
 	var server database.Server
-	if err := database.DB.First(&server, id).Error; err != nil {
+	if err := database.GetDB().First(&server, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -433,7 +431,7 @@ func (s *Server) handleDeployServerViaAgent(c *gin.Context, server *database.Ser
 	// 生成配置
 	// 为保证一致性，重新查出完整 server 结构体（与预览接口一致）
 	var fullServer database.Server
-	if err := database.DB.First(&fullServer, server.ID).Error; err != nil {
+	if err := database.GetDB().First(&fullServer, server.ID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -484,7 +482,7 @@ func (s *Server) handleDeployServerViaAgent(c *gin.Context, server *database.Ser
 		}
 
 		// 更新服务器的最后部署时间
-		database.DB.Model(server).Update("last_deploy_at", time.Now())
+		database.GetDB().Model(server).Update("last_deploy_at", time.Now())
 
 		// 构建输出信息
 		output := fmt.Sprintf("目录部署完成！\n核心类型: %s\n目标路径: %s\n服务名: %s\n运行状态: %v\n对侧服务: %s (运行状态: %v)",
@@ -526,7 +524,7 @@ func (s *Server) handleDeployServerViaAgent(c *gin.Context, server *database.Ser
 		}
 
 		// 更新服务器的最后部署时间
-		database.DB.Model(server).Update("last_deploy_at", time.Now())
+		database.GetDB().Model(server).Update("last_deploy_at", time.Now())
 
 		successJSON(c, gin.H{
 			"output": "配置部署完成！已同步配置并重启服务。",
@@ -550,14 +548,14 @@ func (s *Server) handleRegenerateAgentToken(c *gin.Context) {
 	}
 
 	var server database.Server
-	if err := database.DB.First(&server, id).Error; err != nil {
+	if err := database.GetDB().First(&server, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
 
 	// 生成新 Token
 	newToken := generateAgentToken()
-	database.DB.Model(&server).Update("agent_token", newToken)
+	database.GetDB().Model(&server).Update("agent_token", newToken)
 
 	successJSON(c, gin.H{
 		"agent_token": newToken,

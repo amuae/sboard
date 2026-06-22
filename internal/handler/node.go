@@ -114,7 +114,7 @@ type UpdateNodeRequest struct {
 func (s *Server) handleListNodes(c *gin.Context) {
 	var nodes []database.InboundNode
 
-	query := database.DB.Order("id ASC")
+	query := database.GetDB().Order("id ASC")
 
 	// 支持协议过滤
 	if protocol := c.Query("protocol"); protocol != "" {
@@ -134,10 +134,10 @@ func (s *Server) handleListNodes(c *gin.Context) {
 
 	// 获取统计信息
 	var total int64
-	database.DB.Model(&database.InboundNode{}).Count(&total)
+	database.GetDB().Model(&database.InboundNode{}).Count(&total)
 
 	var enabledCount int64
-	database.DB.Model(&database.InboundNode{}).Where("enabled = ?", true).Count(&enabledCount)
+	database.GetDB().Model(&database.InboundNode{}).Where("enabled = ?", true).Count(&enabledCount)
 
 	// 按协议统计
 	type ProtocolStat struct {
@@ -145,7 +145,7 @@ func (s *Server) handleListNodes(c *gin.Context) {
 		Count    int64  `json:"count"`
 	}
 	var protocolStats []ProtocolStat
-	database.DB.Model(&database.InboundNode{}).Select("protocol, count(*) as count").Group("protocol").Scan(&protocolStats)
+	database.GetDB().Model(&database.InboundNode{}).Select("protocol, count(*) as count").Group("protocol").Scan(&protocolStats)
 
 	successJSON(c, gin.H{
 		"nodes": nodes,
@@ -166,7 +166,7 @@ func (s *Server) handleGetNode(c *gin.Context) {
 	}
 
 	var node database.InboundNode
-	if err := database.DB.First(&node, id).Error; err != nil {
+	if err := database.GetDB().First(&node, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "节点不存在")
 		return
 	}
@@ -198,14 +198,14 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 
 	// 检查 tag 是否已存在
 	var count int64
-	database.DB.Model(&database.InboundNode{}).Where("tag = ?", req.Tag).Count(&count)
+	database.GetDB().Model(&database.InboundNode{}).Where("tag = ?", req.Tag).Count(&count)
 	if count > 0 {
 		errorJSON(c, http.StatusBadRequest, "节点 Tag 已存在")
 		return
 	}
 
 	// 检查端口是否已存在
-	database.DB.Model(&database.InboundNode{}).Where("port = ?", req.Port).Count(&count)
+	database.GetDB().Model(&database.InboundNode{}).Where("port = ?", req.Port).Count(&count)
 	if count > 0 {
 		errorJSON(c, http.StatusBadRequest, "端口已被使用")
 		return
@@ -280,7 +280,7 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 		Notes:            req.Notes,
 	}
 
-	if err := database.DB.Create(&node).Error; err != nil {
+	if err := database.GetDB().Create(&node).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "创建失败: "+err.Error())
 		return
 	}
@@ -297,7 +297,7 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 // linkAllUsersToNode 将所有用户链接到节点（批量操作，避免 N+1 查询）
 func (s *Server) linkAllUsersToNode(node *database.InboundNode) {
 	var users []database.ProxyUser
-	database.DB.Where("enabled = ?", 1).Find(&users)
+	database.GetDB().Where("enabled = ?", 1).Find(&users)
 
 	if len(users) == 0 {
 		return
@@ -311,7 +311,7 @@ func (s *Server) linkAllUsersToNode(node *database.InboundNode) {
 
 	// 2. 单次查询已存在的关联
 	var existing []database.NodeUserRelation
-	database.DB.Where("node_id = ? AND user_id IN ?", node.ID, userIDs).Find(&existing)
+	database.GetDB().Where("node_id = ? AND user_id IN ?", node.ID, userIDs).Find(&existing)
 	existingSet := make(map[uint]bool, len(existing))
 	for _, r := range existing {
 		existingSet[r.UserID] = true
@@ -331,7 +331,7 @@ func (s *Server) linkAllUsersToNode(node *database.InboundNode) {
 		})
 	}
 	if len(newRelations) > 0 {
-		database.DB.Create(&newRelations)
+		database.GetDB().Create(&newRelations)
 	}
 }
 
@@ -344,7 +344,7 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 	}
 
 	var node database.InboundNode
-	if err := database.DB.First(&node, id).Error; err != nil {
+	if err := database.GetDB().First(&node, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "节点不存在")
 		return
 	}
@@ -362,7 +362,7 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 	// 如果有新 Tag，检查是否重复
 	if req.Tag != "" && req.Tag != node.Tag {
 		var count int64
-		database.DB.Model(&database.InboundNode{}).Where("tag = ? AND id != ?", req.Tag, id).Count(&count)
+		database.GetDB().Model(&database.InboundNode{}).Where("tag = ? AND id != ?", req.Tag, id).Count(&count)
 		if count > 0 {
 			errorJSON(c, http.StatusBadRequest, "节点 Tag 已存在")
 			return
@@ -374,7 +374,7 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 	// 如果有新端口，检查是否重复
 	if req.Port > 0 && req.Port != node.Port {
 		var count int64
-		database.DB.Model(&database.InboundNode{}).Where("port = ? AND id != ?", req.Port, id).Count(&count)
+		database.GetDB().Model(&database.InboundNode{}).Where("port = ? AND id != ?", req.Port, id).Count(&count)
 		if count > 0 {
 			errorJSON(c, http.StatusBadRequest, "端口已被使用")
 			return
@@ -519,14 +519,14 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 	// Notes 不参与配置生成，不跟踪
 	node.Notes = req.Notes
 
-	if err := database.DB.Save(&node).Error; err != nil {
+	if err := database.GetDB().Save(&node).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存失败")
 		return
 	}
 
 	// 同步更新关联表中的 flow 字段（只在 flow 变化时）
 	if req.Flow != "" && req.Flow != oldFlow {
-		database.DB.Model(&database.NodeUserRelation{}).
+		database.GetDB().Model(&database.NodeUserRelation{}).
 			Where("node_id = ?", node.ID).
 			Update("flow", node.Flow)
 	}
@@ -548,12 +548,12 @@ func (s *Server) handleDeleteNode(c *gin.Context) {
 	}
 
 	// 删除节点的用户关联
-	database.DB.Unscoped().Where("node_id = ?", id).Delete(&database.NodeUserRelation{})
+	database.GetDB().Unscoped().Where("node_id = ?", id).Delete(&database.NodeUserRelation{})
 
 	// 删除节点的服务器配置
-	database.DB.Unscoped().Where("node_id = ?", id).Delete(&database.ServerNodeConfig{})
+	database.GetDB().Unscoped().Where("node_id = ?", id).Delete(&database.ServerNodeConfig{})
 
-	result := database.DB.Unscoped().Delete(&database.InboundNode{}, id)
+	result := database.GetDB().Unscoped().Delete(&database.InboundNode{}, id)
 	if result.Error != nil {
 		errorJSON(c, http.StatusInternalServerError, "删除失败")
 		return
@@ -655,12 +655,12 @@ func (s *Server) handleBatchDeleteNodes(c *gin.Context) {
 	}
 
 	// 删除节点的用户关联
-	database.DB.Unscoped().Where("node_id IN ?", req.IDs).Delete(&database.NodeUserRelation{})
+	database.GetDB().Unscoped().Where("node_id IN ?", req.IDs).Delete(&database.NodeUserRelation{})
 
 	// 删除节点的服务器配置
-	database.DB.Unscoped().Where("node_id IN ?", req.IDs).Delete(&database.ServerNodeConfig{})
+	database.GetDB().Unscoped().Where("node_id IN ?", req.IDs).Delete(&database.ServerNodeConfig{})
 
-	result := database.DB.Unscoped().Delete(&database.InboundNode{}, req.IDs)
+	result := database.GetDB().Unscoped().Delete(&database.InboundNode{}, req.IDs)
 	if result.Error != nil {
 		errorJSON(c, http.StatusInternalServerError, "删除失败")
 		return

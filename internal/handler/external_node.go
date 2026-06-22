@@ -13,7 +13,7 @@ import (
 // handleListExternalNodes 获取外部节点列表
 func (s *Server) handleListExternalNodes(c *gin.Context) {
 	var nodes []database.ExternalNode
-	if err := database.DB.Order("sort_order ASC, id ASC").Find(&nodes).Error; err != nil {
+	if err := database.GetDB().Order("sort_order ASC, id ASC").Find(&nodes).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "获取外部节点列表失败")
 		return
 	}
@@ -29,7 +29,7 @@ func (s *Server) handleGetExternalNode(c *gin.Context) {
 	}
 
 	var node database.ExternalNode
-	if err := database.DB.First(&node, id).Error; err != nil {
+	if err := database.GetDB().First(&node, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "节点不存在")
 		return
 	}
@@ -49,7 +49,7 @@ func (s *Server) handleCreateExternalNode(c *gin.Context) {
 		return
 	}
 
-	if err := database.DB.Create(&node).Error; err != nil {
+	if err := database.GetDB().Create(&node).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "创建节点失败")
 		return
 	}
@@ -65,7 +65,7 @@ func (s *Server) handleUpdateExternalNode(c *gin.Context) {
 	}
 
 	var existing database.ExternalNode
-	if err := database.DB.First(&existing, id).Error; err != nil {
+	if err := database.GetDB().First(&existing, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "节点不存在")
 		return
 	}
@@ -77,7 +77,7 @@ func (s *Server) handleUpdateExternalNode(c *gin.Context) {
 	}
 
 	// 使用 map 更新以正确处理零值（清空字段）
-	if err := database.DB.Model(&existing).Updates(map[string]interface{}{
+	if err := database.GetDB().Model(&existing).Updates(map[string]interface{}{
 		"name":              updates.Name,
 		"protocol":          updates.Protocol,
 		"host":              updates.Host,
@@ -125,7 +125,7 @@ func (s *Server) handleDeleteExternalNode(c *gin.Context) {
 		return
 	}
 
-	if err := database.DB.Delete(&database.ExternalNode{}, id).Error; err != nil {
+	if err := database.GetDB().Delete(&database.ExternalNode{}, id).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "删除节点失败")
 		return
 	}

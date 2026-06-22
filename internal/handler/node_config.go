@@ -40,14 +40,14 @@ func (s *Server) handleGetServerNodeConfigs(c *gin.Context) {
 
 	// 检查服务器是否存在
 	var server database.Server
-	if err := database.DB.First(&server, serverID).Error; err != nil {
+	if err := database.GetDB().First(&server, serverID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
 
 	// 获取服务器的所有节点配置
 	var nodeConfigs []database.ServerNodeConfig
-	database.DB.Where("server_id = ?", serverID).Preload("Node").Find(&nodeConfigs)
+	database.GetDB().Where("server_id = ?", serverID).Preload("Node").Find(&nodeConfigs)
 
 	// 转换为 map 格式，key 为 nodeId
 	configMap := map[string]interface{}{}
@@ -90,13 +90,13 @@ func (s *Server) handleSaveServerNodeConfig(c *gin.Context) {
 
 	// 检查服务器和节点是否存在
 	var server database.Server
-	if err := database.DB.First(&server, serverID).Error; err != nil {
+	if err := database.GetDB().First(&server, serverID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
 
 	var node database.InboundNode
-	if err := database.DB.First(&node, nodeID).Error; err != nil {
+	if err := database.GetDB().First(&node, nodeID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "节点不存在")
 		return
 	}
@@ -109,7 +109,7 @@ func (s *Server) handleSaveServerNodeConfig(c *gin.Context) {
 
 	// 查找或创建节点配置
 	var nodeConfig database.ServerNodeConfig
-	result := database.DB.Where("server_id = ? AND node_id = ?", serverID, nodeID).First(&nodeConfig)
+	result := database.GetDB().Where("server_id = ? AND node_id = ?", serverID, nodeID).First(&nodeConfig)
 
 	if result.Error != nil {
 		// 创建新配置
@@ -138,7 +138,7 @@ func (s *Server) handleSaveServerNodeConfig(c *gin.Context) {
 		nodeConfig.ListenPort = node.Port
 	}
 
-	if err := database.DB.Save(&nodeConfig).Error; err != nil {
+	if err := database.GetDB().Save(&nodeConfig).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存配置失败")
 		return
 	}
@@ -160,7 +160,7 @@ func (s *Server) handleDeleteServerNodeConfig(c *gin.Context) {
 		return
 	}
 
-	result := database.DB.Unscoped().Where("server_id = ? AND node_id = ?", serverID, nodeID).Delete(&database.ServerNodeConfig{})
+	result := database.GetDB().Unscoped().Where("server_id = ? AND node_id = ?", serverID, nodeID).Delete(&database.ServerNodeConfig{})
 	if result.RowsAffected == 0 {
 		errorJSON(c, http.StatusNotFound, "配置不存在")
 		return

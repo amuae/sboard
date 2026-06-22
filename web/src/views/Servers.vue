@@ -818,7 +818,7 @@ function handleDrop(e: DragEvent, index: number) {
   servers.value.splice(index, 0, draggedServer)
   
   // 保存新顺序到后端
-  saveServerOrder()
+  saveServerOrderDebounced()
 }
 
 function handleDragEnd() {
@@ -827,6 +827,8 @@ function handleDragEnd() {
   dragOverIndex.value = null
 }
 
+let orderSaveTimer: ReturnType<typeof setTimeout> | null = null
+
 async function saveServerOrder() {
   try {
     const ids = servers.value.map(s => s.id)
@@ -834,6 +836,12 @@ async function saveServerOrder() {
   } catch (error) {
     showToast('error', '错误', '保存排序失败')
   }
+}
+
+// 带 500ms debounce 的保存排序（拖拽时调用）
+function saveServerOrderDebounced() {
+  if (orderSaveTimer) clearTimeout(orderSaveTimer)
+  orderSaveTimer = setTimeout(saveServerOrder, 500)
 }
 
 // GitHub 脚本地址 (使用加速域名，万能入口自动检测系统)

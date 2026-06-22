@@ -34,7 +34,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 
 	// 查找管理员
 	var admin database.Admin
-	if err := database.DB.Where("username = ?", req.Username).First(&admin).Error; err != nil {
+	if err := database.GetDB().Where("username = ?", req.Username).First(&admin).Error; err != nil {
 		errorJSON(c, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
@@ -111,7 +111,7 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 
 	userID := c.GetUint("user_id")
 	var admin database.Admin
-	if err := database.DB.First(&admin, userID).Error; err != nil {
+	if err := database.GetDB().First(&admin, userID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "用户不存在")
 		return
 	}
@@ -128,7 +128,7 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 		return
 	}
 
-	if err := database.DB.Save(&admin).Error; err != nil {
+	if err := database.GetDB().Save(&admin).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存失败")
 		return
 	}
@@ -152,7 +152,7 @@ func (s *Server) handleChangeUsername(c *gin.Context) {
 
 	userID := c.GetUint("user_id")
 	var admin database.Admin
-	if err := database.DB.First(&admin, userID).Error; err != nil {
+	if err := database.GetDB().First(&admin, userID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "用户不存在")
 		return
 	}
@@ -165,7 +165,7 @@ func (s *Server) handleChangeUsername(c *gin.Context) {
 
 	// 检查新用户名是否已存在
 	var count int64
-	database.DB.Model(&database.Admin{}).Where("username = ? AND id != ?", req.NewUsername, userID).Count(&count)
+	database.GetDB().Model(&database.Admin{}).Where("username = ? AND id != ?", req.NewUsername, userID).Count(&count)
 	if count > 0 {
 		errorJSON(c, http.StatusBadRequest, "用户名已存在")
 		return
@@ -173,7 +173,7 @@ func (s *Server) handleChangeUsername(c *gin.Context) {
 
 	// 更新用户名
 	admin.Username = req.NewUsername
-	if err := database.DB.Save(&admin).Error; err != nil {
+	if err := database.GetDB().Save(&admin).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存失败")
 		return
 	}

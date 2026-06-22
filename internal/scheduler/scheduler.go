@@ -67,7 +67,7 @@ func (s *Scheduler) checkExpiredUsers() {
 	today := time.Now().Format("2006-01-02")
 
 	// 批量禁用所有已启用但已到期的用户
-	result := database.DB.Model(&database.ProxyUser{}).
+	result := database.GetDB().Model(&database.ProxyUser{}).
 		Where("enabled = ? AND expiry_date < ?", 1, today).
 		Update("enabled", 0)
 
@@ -97,7 +97,7 @@ func (s *Scheduler) checkMonthlyTrafficReset() {
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
 	// 只重置那些 traffic_reset 早于本月1日的服务器（即本月还未重置的）
-	result := database.DB.Model(&database.Server{}).
+	result := database.GetDB().Model(&database.Server{}).
 		Where("traffic_reset IS NULL OR traffic_reset < ?", monthStart).
 		Updates(map[string]interface{}{
 			"monthly_in":    0,
@@ -120,7 +120,7 @@ func CheckExpiredUsersNow() (int, error) {
 	today := time.Now().Format("2006-01-02")
 
 	// 查找并禁用所有已到期的用户
-	result := database.DB.Model(&database.ProxyUser{}).
+	result := database.GetDB().Model(&database.ProxyUser{}).
 		Where("enabled = ? AND expiry_date < ?", 1, today).
 		Update("enabled", 0)
 
@@ -137,7 +137,7 @@ func GetExpiredUsers(days int) ([]database.ProxyUser, error) {
 	today := time.Now().Format("2006-01-02")
 
 	var users []database.ProxyUser
-	err := database.DB.Where("enabled = ? AND expiry_date >= ? AND expiry_date <= ?",
+	err := database.GetDB().Where("enabled = ? AND expiry_date >= ? AND expiry_date <= ?",
 		1, today, futureDate).Find(&users).Error
 
 	return users, err

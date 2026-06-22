@@ -38,7 +38,7 @@ type UpdateUserRequest struct {
 func (s *Server) handleListUsers(c *gin.Context) {
 	var users []database.ProxyUser
 
-	query := database.DB.Order("level ASC, id ASC")
+	query := database.GetDB().Order("level ASC, id ASC")
 
 	// 支持搜索
 	if search := c.Query("search"); search != "" {
@@ -82,10 +82,10 @@ func (s *Server) handleListUsers(c *gin.Context) {
 
 	// 获取统计信息
 	var total int64
-	database.DB.Model(&database.ProxyUser{}).Count(&total)
+	database.GetDB().Model(&database.ProxyUser{}).Count(&total)
 
 	var enabledCount int64
-	database.DB.Model(&database.ProxyUser{}).Where("enabled = ?", 1).Count(&enabledCount)
+	database.GetDB().Model(&database.ProxyUser{}).Where("enabled = ?", 1).Count(&enabledCount)
 
 	successJSON(c, gin.H{
 		"users": users,
@@ -108,7 +108,7 @@ func (s *Server) handleGetUser(c *gin.Context) {
 	}
 
 	var user database.ProxyUser
-	if err := database.DB.First(&user, id).Error; err != nil {
+	if err := database.GetDB().First(&user, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "用户不存在")
 		return
 	}
@@ -126,7 +126,7 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 
 	// 检查名称是否已存在
 	var count int64
-	database.DB.Model(&database.ProxyUser{}).Where("name = ?", req.Name).Count(&count)
+	database.GetDB().Model(&database.ProxyUser{}).Where("name = ?", req.Name).Count(&count)
 	if count > 0 {
 		errorJSON(c, http.StatusBadRequest, "用户名已存在")
 		return
@@ -161,7 +161,7 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 		Notes:        req.Notes,
 	}
 
-	if err := database.DB.Create(&user).Error; err != nil {
+	if err := database.GetDB().Create(&user).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "创建失败")
 		return
 	}
@@ -178,7 +178,7 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 // linkUserToNodes 将用户链接到所有启用的节点（批量操作）
 func (s *Server) linkUserToNodes(user *database.ProxyUser) {
 	var nodes []database.InboundNode
-	database.DB.Where("enabled = ?", true).Find(&nodes)
+	database.GetDB().Where("enabled = ?", true).Find(&nodes)
 	if len(nodes) == 0 {
 		return
 	}
@@ -191,7 +191,7 @@ func (s *Server) linkUserToNodes(user *database.ProxyUser) {
 
 	// 2. 单次查询已存在的关联
 	var existing []database.NodeUserRelation
-	database.DB.Where("user_id = ? AND node_id IN ?", user.ID, nodeIDs).Find(&existing)
+	database.GetDB().Where("user_id = ? AND node_id IN ?", user.ID, nodeIDs).Find(&existing)
 	existingSet := make(map[uint]bool, len(existing))
 	for _, r := range existing {
 		existingSet[r.NodeID] = true
@@ -211,7 +211,7 @@ func (s *Server) linkUserToNodes(user *database.ProxyUser) {
 		})
 	}
 	if len(newRelations) > 0 {
-		database.DB.Create(&newRelations)
+		database.GetDB().Create(&newRelations)
 	}
 }
 
@@ -224,7 +224,7 @@ func (s *Server) handleUpdateUser(c *gin.Context) {
 	}
 
 	var user database.ProxyUser
-	if err := database.DB.First(&user, id).Error; err != nil {
+	if err := database.GetDB().First(&user, id).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "用户不存在")
 		return
 	}
@@ -238,7 +238,7 @@ func (s *Server) handleUpdateUser(c *gin.Context) {
 	// 如果有新名称，检查是否重复
 	if req.Name != "" && req.Name != user.Name {
 		var count int64
-		database.DB.Model(&database.ProxyUser{}).Where("name = ? AND id != ?", req.Name, id).Count(&count)
+		database.GetDB().Model(&database.ProxyUser{}).Where("name = ? AND id != ?", req.Name, id).Count(&count)
 		if count > 0 {
 			errorJSON(c, http.StatusBadRequest, "用户名已存在")
 			return
@@ -264,13 +264,13 @@ func (s *Server) handleUpdateUser(c *gin.Context) {
 	}
 	user.Notes = req.Notes
 
-	if err := database.DB.Save(&user).Error; err != nil {
+	if err := database.GetDB().Save(&user).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存失败")
 		return
 	}
 
 	// 同步更新 node_user_relations 中的 UUID
-	database.DB.Model(&database.NodeUserRelation{}).
+	database.GetDB().Model(&database.NodeUserRelation{}).
 		Where("user_id = ?", user.ID).
 		Update("uuid", user.UUID)
 
@@ -291,9 +291,9 @@ func (s *Server) handleDeleteUser(c *gin.Context) {
 	}
 
 	// 先删除用户的节点关联
-	database.DB.Unscoped().Where("user_id = ?", id).Delete(&database.NodeUserRelation{})
+	database.GetDB().Unscoped().Where("user_id = ?", id).Delete(&database.NodeUserRelation{})
 
-	result := database.DB.Unscoped().Delete(&database.ProxyUser{}, id)
+	result := database.GetDB().Unscoped().Delete(&database.ProxyUser{}, id)
 	if result.Error != nil {
 		errorJSON(c, http.StatusInternalServerError, "删除失败")
 		return
@@ -315,7 +315,7 @@ func (s *Server) handleCheckExpiredUsers(c *gin.Context) {
 	today := time.Now().Format("2006-01-02")
 
 	// 查找并禁用所有已到期的用户
-	result := database.DB.Model(&database.ProxyUser{}).
+	result := database.GetDB().Model(&database.ProxyUser{}).
 		Where("enabled = ? AND expiry_date < ?", true, today).
 		Update("enabled", false)
 
@@ -347,14 +347,14 @@ func (s *Server) handleGetExpiringUsers(c *gin.Context) {
 	futureDate := time.Now().AddDate(0, 0, days).Format("2006-01-02")
 
 	var users []database.ProxyUser
-	database.DB.Where("enabled = ? AND expiry_date >= ? AND expiry_date <= ?",
+	database.GetDB().Where("enabled = ? AND expiry_date >= ? AND expiry_date <= ?",
 		true, today, futureDate).
 		Order("expiry_date ASC").
 		Find(&users)
 
 	// 也获取已过期但仍启用的用户（异常情况）
 	var expiredUsers []database.ProxyUser
-	database.DB.Where("enabled = ? AND expiry_date < ?", true, today).Find(&expiredUsers)
+	database.GetDB().Where("enabled = ? AND expiry_date < ?", true, today).Find(&expiredUsers)
 
 	successJSON(c, gin.H{
 		"expiring": users,

@@ -125,7 +125,7 @@ func (h *AgentHub) handleRegister(conn *AgentConnection, msg *agent.Message) {
 
 	// 验证 Token 并查找服务器
 	var server database.Server
-	if err := database.DB.Where("agent_token = ?", data.Token).First(&server).Error; err != nil {
+	if err := database.GetDB().Where("agent_token = ?", data.Token).First(&server).Error; err != nil {
 		conn.Conn.WriteJSON(&agent.Message{
 			Type:  agent.MsgTypeRegisterResp,
 			Error: "认证失败",
@@ -160,7 +160,7 @@ func (h *AgentHub) handleRegister(conn *AgentConnection, msg *agent.Message) {
 	if data.LocalIPv6 != "" {
 		updates["host_ipv6"] = data.LocalIPv6
 	}
-	database.DB.Model(&server).Updates(updates)
+	database.GetDB().Model(&server).Updates(updates)
 
 	// 发送注册成功响应
 	conn.Conn.WriteJSON(&agent.Message{
@@ -200,7 +200,7 @@ func (h *AgentHub) handleHeartbeat(conn *AgentConnection, msg *agent.Message) {
 	if conn.ServerID > 0 {
 		// 先获取上次的 transfer 值
 		var server database.Server
-		if err := database.DB.Select("last_net_in_transfer", "last_net_out_transfer").
+		if err := database.GetDB().Select("last_net_in_transfer", "last_net_out_transfer").
 			Where("id = ?", conn.ServerID).First(&server).Error; err == nil {
 
 			// 计算差值（仅当新值大于旧值时累加，避免服务器重启导致负值）
@@ -229,11 +229,11 @@ func (h *AgentHub) handleHeartbeat(conn *AgentConnection, msg *agent.Message) {
 			if data.LocalIPv6 != "" {
 				updates["host_ipv6"] = data.LocalIPv6
 			}
-			database.DB.Model(&database.Server{}).Where("id = ?", conn.ServerID).Updates(updates)
+			database.GetDB().Model(&database.Server{}).Where("id = ?", conn.ServerID).Updates(updates)
 
 			// 累加月度流量（使用精确差值）
 			if deltaIn > 0 || deltaOut > 0 {
-				database.DB.Model(&database.Server{}).Where("id = ?", conn.ServerID).
+				database.GetDB().Model(&database.Server{}).Where("id = ?", conn.ServerID).
 					UpdateColumn("monthly_in", gorm.Expr("monthly_in + ?", deltaIn)).
 					UpdateColumn("monthly_out", gorm.Expr("monthly_out + ?", deltaOut))
 			}
@@ -357,7 +357,7 @@ func (h *AgentHub) RemoveAgent(agentID string) {
 		if conn.ServerID > 0 {
 			delete(h.serverMap, conn.ServerID)
 			// 更新服务器离线状态
-			database.DB.Model(&database.Server{}).Where("id = ?", conn.ServerID).Update("agent_online", false)
+			database.GetDB().Model(&database.Server{}).Where("id = ?", conn.ServerID).Update("agent_online", false)
 		}
 		delete(h.agents, agentID)
 		conn.Conn.Close()
@@ -435,7 +435,7 @@ func (h *AgentHub) doSyncConfig() {
 		go func(serverID uint, conn *websocket.Conn) {
 			// 数据库查询在 goroutine 中执行，不阻塞主流程
 			var server database.Server
-			if err := database.DB.First(&server, serverID).Error; err != nil {
+			if err := database.GetDB().First(&server, serverID).Error; err != nil {
 				return
 			}
 
@@ -625,7 +625,7 @@ func (s *Server) handleSyncConfigToAgent(c *gin.Context) {
 
 	// 获取服务器
 	var server database.Server
-	if err := database.DB.First(&server, serverID).Error; err != nil {
+	if err := database.GetDB().First(&server, serverID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -692,7 +692,7 @@ func (s *Server) handleDeployCoreToAgent(c *gin.Context) {
 
 	// 获取服务器
 	var server database.Server
-	if err := database.DB.First(&server, serverID).Error; err != nil {
+	if err := database.GetDB().First(&server, serverID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -769,7 +769,7 @@ func generateMsgID() string {
 func (s *Server) handleDeployAll(c *gin.Context) {
 	// 获取所有启用的服务器
 	var servers []database.Server
-	if err := database.DB.Where("enabled = ?", true).Find(&servers).Error; err != nil {
+	if err := database.GetDB().Where("enabled = ?", true).Find(&servers).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "获取服务器列表失败")
 		return
 	}
@@ -850,7 +850,7 @@ func (s *Server) handleDeployAll(c *gin.Context) {
 func (s *Server) handleUpdateAgents(c *gin.Context) {
 	// 获取所有启用的服务器
 	var servers []database.Server
-	if err := database.DB.Where("enabled = ?", true).Find(&servers).Error; err != nil {
+	if err := database.GetDB().Where("enabled = ?", true).Find(&servers).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "获取服务器列表失败")
 		return
 	}

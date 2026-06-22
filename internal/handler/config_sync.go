@@ -45,7 +45,7 @@ func (s *Server) handleGetServerConfig(c *gin.Context) {
 	}
 
 	var server database.Server
-	if err := database.DB.First(&server, serverID).Error; err != nil {
+	if err := database.GetDB().First(&server, serverID).Error; err != nil {
 		errorJSON(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -79,7 +79,7 @@ func generateGlobalConfig(configType string) (string, error) {
 func generateGlobalSingBoxConfig() (string, error) {
 	// 获取所有启用的节点
 	var nodes []database.InboundNode
-	database.DB.Where("enabled = ?", true).Order("id ASC").Find(&nodes)
+	database.GetDB().Where("enabled = ?", true).Order("id ASC").Find(&nodes)
 
 	inbounds := []*OrderedMap{}
 
@@ -305,7 +305,7 @@ type NodeUser struct {
 // getNodeUsers 获取节点关联的用户
 func getNodeUsers(nodeID uint) []NodeUser {
 	var relations []database.NodeUserRelation
-	database.DB.Where("node_id = ?", nodeID).Find(&relations)
+	database.GetDB().Where("node_id = ?", nodeID).Find(&relations)
 
 	userIDs := make([]uint, len(relations))
 	relationMap := make(map[uint]database.NodeUserRelation)
@@ -319,7 +319,7 @@ func getNodeUsers(nodeID uint) []NodeUser {
 	}
 
 	var dbUsers []database.ProxyUser
-	database.DB.Where("id IN ? AND enabled = ?", userIDs, 1).Find(&dbUsers)
+	database.GetDB().Where("id IN ? AND enabled = ?", userIDs, 1).Find(&dbUsers)
 
 	today := time.Now().Format("2006-01-02")
 	users := []NodeUser{}
@@ -344,15 +344,15 @@ func getNodeUsers(nodeID uint) []NodeUser {
 // GenerateServerConfig 为特定服务器生成配置
 func GenerateServerConfig(server *database.Server, configType string) (string, error) {
 	var nodes []database.InboundNode
-	database.DB.Where("enabled = ?", true).Order("id ASC").Find(&nodes)
+	database.GetDB().Where("enabled = ?", true).Order("id ASC").Find(&nodes)
 
 	var allUsers []database.ProxyUser
 	today := time.Now().Format("2006-01-02")
-	database.DB.Where("enabled = ? AND expiry_date >= ?", 1, today).Find(&allUsers)
+	database.GetDB().Where("enabled = ? AND expiry_date >= ?", 1, today).Find(&allUsers)
 
 	// 获取服务器的所有启用的落地出站（按槽位排序）
 	var serverOutbounds []database.ServerOutbound
-	database.DB.Where("server_id = ? AND enabled = ?", server.ID, true).Order("slot ASC").Find(&serverOutbounds)
+	database.GetDB().Where("server_id = ? AND enabled = ?", server.ID, true).Order("slot ASC").Find(&serverOutbounds)
 
 	switch configType {
 	case "sing-box", "singbox":
@@ -405,7 +405,7 @@ func generateServerSingBoxConfig(nodes []database.InboundNode, allUsers []databa
 	}
 	var allRelations []database.NodeUserRelation
 	if len(nodeIDs) > 0 {
-		database.DB.Where("node_id IN ?", nodeIDs).Find(&allRelations)
+		database.GetDB().Where("node_id IN ?", nodeIDs).Find(&allRelations)
 	}
 	// 按 nodeID 分组
 	nodeRelationsMap := make(map[uint][]database.NodeUserRelation)
@@ -905,11 +905,11 @@ var (
 // 当此哈希不变时，全量 config push 可跳过（服务器落地出站变化走独立路径）
 func computeUniversalConfigHash() string {
 	var nodes []database.InboundNode
-	database.DB.Where("enabled = ?", true).Order("id ASC").Find(&nodes)
+	database.GetDB().Where("enabled = ?", true).Order("id ASC").Find(&nodes)
 
 	var allUsers []database.ProxyUser
 	today := time.Now().Format("2006-01-02")
-	database.DB.Where("enabled = ? AND expiry_date >= ?", 1, today).Find(&allUsers)
+	database.GetDB().Where("enabled = ? AND expiry_date >= ?", 1, today).Find(&allUsers)
 
 	// 不传 serverOutbounds（空数组），只计算 nodes + users 的通用部分
 	config, err := generateServerSingBoxConfig(nodes, allUsers, nil)

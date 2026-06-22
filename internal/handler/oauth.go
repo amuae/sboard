@@ -211,14 +211,14 @@ func (s *Server) handleGitHubCallback(c *gin.Context) {
 
 	// 查找或创建管理员账户
 	var admin database.Admin
-	result := database.DB.Where("auth_provider = ? AND o_auth_id = ?", "github", fmt.Sprintf("%d", githubUser.ID)).First(&admin)
+	result := database.GetDB().Where("auth_provider = ? AND o_auth_id = ?", "github", fmt.Sprintf("%d", githubUser.ID)).First(&admin)
 
 	if result.Error != nil {
 		// 检查是否存在同名本地用户，如果存在则关联
-		existingResult := database.DB.Where("username = ? AND auth_provider = ?", githubUser.Login, "local").First(&admin)
+		existingResult := database.GetDB().Where("username = ? AND auth_provider = ?", githubUser.Login, "local").First(&admin)
 		if existingResult.Error == nil {
 			// 将本地用户关联到 GitHub
-			database.DB.Model(&admin).Updates(map[string]interface{}{
+			database.GetDB().Model(&admin).Updates(map[string]interface{}{
 				"auth_provider": "github",
 				"o_auth_id":     fmt.Sprintf("%d", githubUser.ID),
 				"email":         githubUser.Email,
@@ -233,10 +233,10 @@ func (s *Server) handleGitHubCallback(c *gin.Context) {
 				Email:        githubUser.Email,
 				AvatarURL:    githubUser.AvatarURL,
 			}
-			if err := database.DB.Create(&admin).Error; err != nil {
+			if err := database.GetDB().Create(&admin).Error; err != nil {
 				// 用户名可能冲突，添加后缀
 				admin.Username = fmt.Sprintf("%s_gh", githubUser.Login)
-				if err := database.DB.Create(&admin).Error; err != nil {
+				if err := database.GetDB().Create(&admin).Error; err != nil {
 					c.Redirect(http.StatusFound, "/?error=user_create_failed")
 					return
 				}
@@ -244,7 +244,7 @@ func (s *Server) handleGitHubCallback(c *gin.Context) {
 		}
 	} else {
 		// 更新用户信息
-		database.DB.Model(&admin).Updates(map[string]interface{}{
+		database.GetDB().Model(&admin).Updates(map[string]interface{}{
 			"email":      githubUser.Email,
 			"avatar_url": githubUser.AvatarURL,
 		})

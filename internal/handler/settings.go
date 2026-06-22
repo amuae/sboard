@@ -48,7 +48,7 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 
 	// 从数据库加载配置
 	var configs []database.SystemConfig
-	if err := database.DB.Find(&configs).Error; err != nil {
+	if err := database.GetDB().Find(&configs).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "读取系统设置失败")
 		return
 	}
@@ -76,18 +76,18 @@ func (s *Server) handleUpdateSettings(c *gin.Context) {
 
 		// 查找或创建配置
 		var config database.SystemConfig
-		result := database.DB.Where("key = ?", key).First(&config)
+		result := database.GetDB().Where("key = ?", key).First(&config)
 		if result.Error != nil {
 			// 创建新配置
 			config = database.SystemConfig{
 				Key:   key,
 				Value: value,
 			}
-			database.DB.Create(&config)
+			database.GetDB().Create(&config)
 		} else {
 			// 更新现有配置
 			config.Value = value
-			database.DB.Save(&config)
+			database.GetDB().Save(&config)
 		}
 	}
 
@@ -97,7 +97,7 @@ func (s *Server) handleUpdateSettings(c *gin.Context) {
 // GetSetting 获取单个设置值
 func GetSetting(key string) string {
 	var config database.SystemConfig
-	if err := database.DB.Where("key = ?", key).First(&config).Error; err != nil {
+	if err := database.GetDB().Where("key = ?", key).First(&config).Error; err != nil {
 		// 返回默认值
 		if defaultValue, ok := defaultSettings[key]; ok {
 			return defaultValue
@@ -110,16 +110,16 @@ func GetSetting(key string) string {
 // SetSetting 设置单个配置值
 func SetSetting(key, value string) error {
 	var config database.SystemConfig
-	result := database.DB.Where("key = ?", key).First(&config)
+	result := database.GetDB().Where("key = ?", key).First(&config)
 	if result.Error != nil {
 		config = database.SystemConfig{
 			Key:   key,
 			Value: value,
 		}
-		return database.DB.Create(&config).Error
+		return database.GetDB().Create(&config).Error
 	}
 	config.Value = value
-	return database.DB.Save(&config).Error
+	return database.GetDB().Save(&config).Error
 }
 
 // ========== 配置预览 API ==========
@@ -136,7 +136,7 @@ func (s *Server) handlePreviewConfig(c *gin.Context) {
 	// 如果指定了服务器，生成该服务器的配置
 	if serverIDStr != "" {
 		var server database.Server
-		if err := database.DB.First(&server, serverIDStr).Error; err != nil {
+		if err := database.GetDB().First(&server, serverIDStr).Error; err != nil {
 			errorJSON(c, http.StatusNotFound, "服务器不存在")
 			return
 		}
