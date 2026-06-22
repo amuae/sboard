@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"io"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sboard-go/sboard/internal/database"
 	"github.com/sboard-go/sboard/internal/middleware"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // LoginRequest 登录请求
@@ -192,10 +189,4 @@ func (s *Server) handleGetCurrentUser(c *gin.Context) {
 }
 
 // 占位符函数，需要在其他文件中实现
-var _ io.ReadSeeker // 导入检查
 
-func init() {
-	// 确保 bcrypt 包被导入
-	_ = bcrypt.DefaultCost
-	_ = time.Now
-}

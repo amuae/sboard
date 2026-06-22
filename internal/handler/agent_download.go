@@ -20,7 +20,7 @@ func (s *Server) handleDownloadAgent(c *gin.Context) {
 		"armv7": true,
 	}
 	if !validArch[arch] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "不支持的架构: " + arch})
+		errorJSON(c, http.StatusBadRequest, "不支持的架构: "+arch)
 		return
 	}
 
@@ -53,10 +53,7 @@ func (s *Server) handleDownloadAgent(c *gin.Context) {
 	}
 
 	if agentPath == "" {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Agent 二进制文件未找到",
-			"hint":  "请确保 sboard-agent 或 agent 文件与 sboard 在同一目录",
-		})
+		errorJSON(c, http.StatusNotFound, "Agent 二进制文件未找到 — 请确保 sboard-agent 或 agent 文件与 sboard 在同一目录")
 		return
 	}
 
@@ -64,17 +61,14 @@ func (s *Server) handleDownloadAgent(c *gin.Context) {
 	currentArch := runtime.GOARCH
 	if currentArch == "amd64" && arch != "amd64" ||
 		currentArch == "arm64" && arch != "arm64" {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "当前服务器架构为 " + currentArch + "，无法提供 " + arch + " 架构的 Agent",
-			"hint":  "需要交叉编译对应架构的 Agent",
-		})
+		errorJSON(c, http.StatusNotFound, "当前服务器架构为 "+currentArch+"，无法提供 "+arch+" 架构的 Agent，需要交叉编译")
 		return
 	}
 
 	// 读取文件
 	data, err := os.ReadFile(agentPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 Agent 文件失败: " + err.Error()})
+		errorJSON(c, http.StatusInternalServerError, "读取 Agent 文件失败: "+err.Error())
 		return
 	}
 

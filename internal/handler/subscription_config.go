@@ -31,13 +31,13 @@ type SubscriptionConfigsRequest struct {
 func (s *Server) handleGetSubscriptionConfigs(c *gin.Context) {
 	mihomoConfigsJSON, err := database.GetSystemConfig(ConfigKeyMihomoConfigs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Mihomo 配置失败"})
+		errorJSON(c, http.StatusInternalServerError, "获取 Mihomo 配置失败")
 		return
 	}
 
 	singboxConfigsJSON, err := database.GetSystemConfig(ConfigKeySingBoxConfigs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 SingBox 配置失败"})
+		errorJSON(c, http.StatusInternalServerError, "获取 SingBox 配置失败")
 		return
 	}
 
@@ -59,7 +59,7 @@ func (s *Server) handleGetSubscriptionConfigs(c *gin.Context) {
 func (s *Server) handleSaveSubscriptionConfigs(c *gin.Context) {
 	var req SubscriptionConfigsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		errorJSON(c, http.StatusBadRequest, "请求参数错误")
 		return
 	}
 
@@ -67,7 +67,7 @@ func (s *Server) handleSaveSubscriptionConfigs(c *gin.Context) {
 	if len(req.MihomoConfigs) > 0 {
 		var test []interface{}
 		if err := json.Unmarshal(req.MihomoConfigs, &test); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Mihomo 配置格式错误"})
+			errorJSON(c, http.StatusBadRequest, "Mihomo 配置格式错误")
 			return
 		}
 	}
@@ -75,7 +75,7 @@ func (s *Server) handleSaveSubscriptionConfigs(c *gin.Context) {
 	if len(req.SingBoxConfigs) > 0 {
 		var test []interface{}
 		if err := json.Unmarshal(req.SingBoxConfigs, &test); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "SingBox 配置格式错误"})
+			errorJSON(c, http.StatusBadRequest, "SingBox 配置格式错误")
 			return
 		}
 	}
@@ -86,7 +86,7 @@ func (s *Server) handleSaveSubscriptionConfigs(c *gin.Context) {
 		mihomoJSON = string(req.MihomoConfigs)
 	}
 	if err := database.SetSystemConfig(ConfigKeyMihomoConfigs, mihomoJSON, "Mihomo 订阅配置模板"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 Mihomo 配置失败"})
+		errorJSON(c, http.StatusInternalServerError, "保存 Mihomo 配置失败")
 		return
 	}
 
@@ -96,11 +96,11 @@ func (s *Server) handleSaveSubscriptionConfigs(c *gin.Context) {
 		singboxJSON = string(req.SingBoxConfigs)
 	}
 	if err := database.SetSystemConfig(ConfigKeySingBoxConfigs, singboxJSON, "SingBox 订阅配置模板"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 SingBox 配置失败"})
+		errorJSON(c, http.StatusInternalServerError, "保存 SingBox 配置失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "保存成功"})
+	successMsgJSON(c, "保存成功")
 }
 
 // GetEnabledSingBoxConfig 获取启用的 SingBox 配置（供订阅生成使用）

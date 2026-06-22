@@ -32,14 +32,10 @@ func (s *Scheduler) SetConfigSyncCallback(callback ConfigSyncCallback) {
 func (s *Scheduler) Start() {
 	log.Println("定时任务调度器已启动")
 
-	// 启动时先执行一次检查
-	go s.checkExpiredUsers()
-	go s.checkMonthlyTrafficReset()
-
-	// 每10分钟检查一次到期用户
-	go s.runPeriodically(10*time.Minute, s.checkExpiredUsers)
+	// 每10分钟检查一次到期用户，首次立即触发
+	go s.runPeriodically(10*time.Minute, s.checkExpiredUsers, true)
 	// 每10分钟检查一次是否需要重置月度流量
-	go s.runPeriodically(10*time.Minute, s.checkMonthlyTrafficReset)
+	go s.runPeriodically(10*time.Minute, s.checkMonthlyTrafficReset, false)
 }
 
 // Stop 停止调度器
@@ -48,8 +44,11 @@ func (s *Scheduler) Stop() {
 	log.Println("定时任务调度器已停止")
 }
 
-// runPeriodically 定期执行任务
-func (s *Scheduler) runPeriodically(interval time.Duration, task func()) {
+// runPeriodically 定期执行任务，如果 runImmediately 为 true，首次立即触发
+func (s *Scheduler) runPeriodically(interval time.Duration, task func(), runImmediately bool) {
+	if runImmediately {
+		task()
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

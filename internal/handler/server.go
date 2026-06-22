@@ -43,6 +43,10 @@ func NewServer(cfg *config.Config, frontendFS embed.FS) *Server {
 	}
 
 	s.setupRoutes()
+
+	// 启动 Agent Hub 消息泵（原 init() 副作用）
+	InitAgentHub()
+
 	return s
 }
 

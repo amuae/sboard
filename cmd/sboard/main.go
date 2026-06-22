@@ -61,7 +61,7 @@ func main() {
 	}
 
 	// 确保数据目录存在
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		log.Fatalf("创建数据目录失败: %v", err)
 	}
 

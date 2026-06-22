@@ -48,7 +48,10 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 
 	// 从数据库加载配置
 	var configs []database.SystemConfig
-	database.DB.Find(&configs)
+	if err := database.DB.Find(&configs).Error; err != nil {
+		errorJSON(c, http.StatusInternalServerError, "读取系统设置失败")
+		return
+	}
 	for _, cfg := range configs {
 		settings[cfg.Key] = cfg.Value
 	}

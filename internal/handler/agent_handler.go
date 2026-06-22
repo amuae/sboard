@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -87,7 +88,8 @@ var agentHub = &AgentHub{
 	pendingReq: make(map[string]chan *agent.Message),
 }
 
-func init() {
+// InitAgentHub starts the agent hub message pump. Called from NewServer.
+func InitAgentHub() {
 	go agentHub.run()
 }
 
@@ -712,7 +714,8 @@ func parseUint(s string) uint64 {
 }
 
 func generateMsgID() string {
-	return time.Now().Format("20060102150405.000000")
+	now := time.Now()
+	return fmt.Sprintf("%s-%06d", now.Format("20060102150405"), now.Nanosecond()/1000)
 }
 
 // handleDeployAll 全部部署（向所有存活 Agent 发送部署核心指令）
