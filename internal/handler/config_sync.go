@@ -389,29 +389,60 @@ func generateServerSingBoxConfig(nodes []database.InboundNode, allUsers []databa
 		configuredSlots = append(configuredSlots, ob.Slot)
 	}
 
+	// 预加载用户 ID → User 映射（启用且未过期）
+	userMap := make(map[uint]*database.ProxyUser)
+	for i := range allUsers {
+		if allUsers[i].Enabled == 1 {
+			userMap[allUsers[i].ID] = &allUsers[i]
+		}
+	}
+
+	// 批量加载所有节点的用户关系（一次查询，消除 N+1）
+	nodeIDs := make([]uint, len(nodes))
+	for i, node := range nodes {
+		nodeIDs[i] = node.ID
+	}
+	var allRelations []database.NodeUserRelation
+	if len(nodeIDs) > 0 {
+		database.DB.Where("node_id IN ?", nodeIDs).Find(&allRelations)
+	}
+	// 按 nodeID 分组
+	nodeRelationsMap := make(map[uint][]database.NodeUserRelation)
+	for _, rel := range allRelations {
+		nodeRelationsMap[rel.NodeID] = append(nodeRelationsMap[rel.NodeID], rel)
+	}
+
 	for _, node := range nodes {
-		// 获取该节点关联的用户（包含主 UUID）
-		nodeUserRelations := getNodeUserRelations(node.ID, allUsers)
+		relations := nodeRelationsMap[node.ID]
+		if len(relations) == 0 {
+			continue
+		}
+
+		// 过滤出有对应用户的关系
+		var nodeUserRelations []NodeUserRelation
+		for _, rel := range relations {
+			if user, exists := userMap[rel.UserID]; exists {
+				nodeUserRelations = append(nodeUserRelations, NodeUserRelation{
+					UserID: rel.UserID,
+					UUID:   rel.UUID,
+					Flow:   rel.Flow,
+				})
+				_ = user
+			}
+		}
 		if len(nodeUserRelations) == 0 {
 			continue
 		}
 
 		// 构建入站用户列表（包含主 UUID + 配置了落地出站的额外 UUID）
-		inbound := buildSingBoxInboundWithExtraUUIDs(&node, nodeUserRelations, configuredSlots)
+		inbound := buildSingBoxInboundWithExtraUUIDs(&node, nodeUserRelations, userMap, configuredSlots)
 		if inbound != nil {
 			inbounds = append(inbounds, inbound)
 		}
 
 		// 生成路由规则：额外 UUID 使用对应槽位的落地出站
 		for _, rel := range nodeUserRelations {
-			// 获取对应的用户
-			var user *database.ProxyUser
-			for i := range allUsers {
-				if allUsers[i].ID == rel.UserID {
-					user = &allUsers[i]
-					break
-				}
-			}
+			user := userMap[rel.UserID]
 			if user == nil {
 				continue
 			}
@@ -464,49 +495,18 @@ type NodeUserRelation struct {
 	Flow   string
 }
 
-// getNodeUserRelations 获取节点关联的用户关系（用于配置生成）
-func getNodeUserRelations(nodeID uint, allUsers []database.ProxyUser) []NodeUserRelation {
-	var relations []database.NodeUserRelation
-	database.DB.Where("node_id = ?", nodeID).Find(&relations)
-
-	if len(relations) == 0 {
-		return nil
-	}
-
-	// 构建用户 ID 到用户的映射
-	userMap := make(map[uint]*database.ProxyUser)
-	for i := range allUsers {
-		userMap[allUsers[i].ID] = &allUsers[i]
-	}
-
-	result := []NodeUserRelation{}
-	for _, rel := range relations {
-		if user, exists := userMap[rel.UserID]; exists {
-			result = append(result, NodeUserRelation{
-				UserID: rel.UserID,
-				UUID:   rel.UUID,
-				Flow:   rel.Flow,
-			})
-			_ = user // 确保用户存在
-		}
-	}
-
-	return result
-}
-
 // buildSingBoxInboundWithExtraUUIDs 构建包含额外 UUID 的入站配置
 // configuredSlots: 已配置落地出站的槽位列表，只添加这些槽位对应的额外 UUID
-func buildSingBoxInboundWithExtraUUIDs(node *database.InboundNode, relations []NodeUserRelation, configuredSlots []int) *OrderedMap {
-	// 获取所有用户
-	userIDs := make([]uint, 0, len(relations))
+func buildSingBoxInboundWithExtraUUIDs(node *database.InboundNode, relations []NodeUserRelation, userMap map[uint]*database.ProxyUser, configuredSlots []int) *OrderedMap {
+	// 从预加载的 userMap 中获取用户（避免重复查询 DB）
 	relMap := make(map[uint]NodeUserRelation)
-	for _, rel := range relations {
-		userIDs = append(userIDs, rel.UserID)
-		relMap[rel.UserID] = rel
-	}
-
 	var users []database.ProxyUser
-	database.DB.Where("id IN ? AND enabled = ?", userIDs, 1).Find(&users)
+	for _, rel := range relations {
+		relMap[rel.UserID] = rel
+		if u, ok := userMap[rel.UserID]; ok {
+			users = append(users, *u)
+		}
+	}
 
 	if len(users) == 0 {
 		return nil
