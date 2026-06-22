@@ -247,7 +247,6 @@ func (a *Agent) connect() error {
 		return err
 	}
 
-	// 转换为 WebSocket URL
 	if u.Scheme == "https" {
 		u.Scheme = "wss"
 	} else {
@@ -257,7 +256,10 @@ func (a *Agent) connect() error {
 
 	log.Printf("正在连接: %s", u.String())
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -334,14 +336,20 @@ func (a *Agent) heartbeatLoop() {
 }
 
 func (a *Agent) sendHeartbeat() error {
-	// 获取系统信息
+	// 获取系统信息（需 nil 检查防止容器/WSL 环境 panic）
 	cpuPercent, _ := cpu.Percent(0, false)
 	memInfo, _ := mem.VirtualMemory()
 	diskInfo, _ := disk.Usage("/")
 
-	var cpuPct float64
+	var cpuPct, memPct, diskPct float64
 	if len(cpuPercent) > 0 {
 		cpuPct = cpuPercent[0]
+	}
+	if memInfo != nil {
+		memPct = memInfo.UsedPercent
+	}
+	if diskInfo != nil {
+		diskPct = diskInfo.UsedPercent
 	}
 
 	// 从 netstatic 获取流量统计（持久化的增量累计）
@@ -366,8 +374,8 @@ func (a *Agent) sendHeartbeat() error {
 	data := map[string]interface{}{
 		"uptime":           int64(time.Since(a.startTime).Seconds()),
 		"cpu_percent":      cpuPct,
-		"mem_percent":      memInfo.UsedPercent,
-		"disk_percent":     diskInfo.UsedPercent,
+		"mem_percent":      memPct,
+		"disk_percent":     diskPct,
 		"net_in":           netInSpeed,     // bytes/s (实时速率)
 		"net_out":          netOutSpeed,    // bytes/s (实时速率)
 		"net_in_transfer":  totalBytesRecv, // bytes (持久化的累计流量)
@@ -459,31 +467,36 @@ func (a *Agent) handleMessage(msg *Message) {
 	}
 }
 
-// allowedCommands 远程命令白名单 — 仅允许安全的管理操作
+// allowedCommands 远程命令白名单 — 仅允许已知安全命令
 var allowedCommands = map[string]bool{
-	// 系统信息
 	"uname":     true,
 	"hostname":  true,
 	"uptime":    true,
-	// 网络状态
 	"ip":        true,
 	"ss":        true,
 	"netstat":   true,
-	// 进程信息
 	"ps":        true,
 	"top":       true,
-	// 磁盘/内存
 	"df":        true,
 	"free":      true,
 	"du":        true,
-	// sing-box 管理
 	"sing-box":  true,
-	// 日志查看
 	"journalctl": true,
 	"tail":      true,
 	"cat":       true,
 	"ls":        true,
 }
+
+// fileReadingCommands 可以读取文件的命令，需额外校验 args 路径在安全范围内
+var fileReadingCommands = map[string]bool{
+	"cat":        true,
+	"tail":       true,
+	"ls":         true,
+	"journalctl": true, // journalctl 有 -D/--directory 可指定日志目录
+}
+
+// safeReadDirs 文件读取类命令允许访问的目录
+var safeReadDirs = []string{"/opt/sboard", "/var/log", "/tmp", "/etc/sing-box", "/etc/systemd/system"}
 
 func (a *Agent) handleCommand(msg *Message) (*Message, error) {
 	var data struct {
@@ -509,6 +522,35 @@ func (a *Agent) handleCommand(msg *Message) (*Message, error) {
 			Timestamp: time.Now().Unix(),
 			Data:      errData,
 		}, nil
+	}
+
+	// 文件读取类命令的 args 路径校验
+	if fileReadingCommands[data.Command] {
+		for _, arg := range data.Args {
+			// 跳过不以 / 或 - 开头的参数（非路径）
+			if !strings.HasPrefix(arg, "/") && !strings.HasPrefix(arg, "-") {
+				continue
+			}
+			// 跳过纯 flag（如 -n, --help）
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
+			// 检查路径是否在安全目录范围内
+			safe, err := safeResolvePath(arg, safeReadDirs)
+			if err != nil || safe == "" {
+				errData, _ := json.Marshal(map[string]interface{}{
+					"exit_code": 1,
+					"stdout":    "",
+					"stderr":    fmt.Sprintf("路径不在允许范围内: %s", arg),
+					"duration":  0,
+				})
+				return &Message{
+					Type:      MsgTypeCommandResp,
+					Timestamp: time.Now().Unix(),
+					Data:      errData,
+				}, nil
+			}
+		}
 	}
 
 	timeout := time.Duration(data.Timeout) * time.Second
