@@ -355,6 +355,10 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 		return
 	}
 
+	// 跟踪配置相关字段变化（Notes/CertPath/KeyPath 不参与配置生成，忽略）
+	configChanged := false
+	oldFlow := node.Flow // 保存旧值用于后续 flow 同步判断
+
 	// 如果有新 Tag，检查是否重复
 	if req.Tag != "" && req.Tag != node.Tag {
 		var count int64
@@ -363,6 +367,7 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 			errorJSON(c, http.StatusBadRequest, "节点 Tag 已存在")
 			return
 		}
+		configChanged = true
 		node.Tag = req.Tag
 	}
 
@@ -374,12 +379,12 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 			errorJSON(c, http.StatusBadRequest, "端口已被使用")
 			return
 		}
+		configChanged = true
 		node.Port = req.Port
 	}
 
-	// 更新字段
+	// 更新字段 — 仅在配置相关字段变化时记录
 	if req.Protocol != "" {
-		// 验证协议类型
 		validProtocols := []string{"trojan", "vless", "vmess", "anytls", "shadowsocks", "hysteria2", "naive"}
 		isValid := false
 		for _, p := range validProtocols {
@@ -392,47 +397,126 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 			errorJSON(c, http.StatusBadRequest, "无效的协议类型")
 			return
 		}
+		if req.Protocol != node.Protocol {
+			configChanged = true
+		}
 		node.Protocol = req.Protocol
 	}
 	if req.Listen != "" {
+		if req.Listen != node.Listen {
+			configChanged = true
+		}
 		node.Listen = req.Listen
 	}
+
+	if req.TlsEnabled != node.TlsEnabled {
+		configChanged = true
+	}
 	node.TlsEnabled = req.TlsEnabled
-	if req.ServerName != "" {
+	if req.ServerName != "" && req.ServerName != node.ServerName {
+		configChanged = true
 		node.ServerName = req.ServerName
 	}
+	// CertPath/KeyPath 不参与配置生成，不跟踪变化
 	if req.CertPath != "" {
 		node.CertPath = req.CertPath
 	}
 	if req.KeyPath != "" {
 		node.KeyPath = req.KeyPath
 	}
+
+	if req.RealityEnabled != node.RealityEnabled {
+		configChanged = true
+	}
 	node.RealityEnabled = req.RealityEnabled
+	if req.RealityServer != node.RealityServer {
+		configChanged = true
+	}
 	node.RealityServer = req.RealityServer
+	if req.RealityPubkey != node.RealityPubkey {
+		configChanged = true
+	}
 	node.RealityPubkey = req.RealityPubkey
+	if req.RealityPrivkey != node.RealityPrivkey {
+		configChanged = true
+	}
 	node.RealityPrivkey = req.RealityPrivkey
-	// 如果启用 Reality 且 short_id 为空，自动生成随机 short_id
+	newShortId := req.RealityShortId
 	if req.RealityEnabled && req.RealityShortId == "" && node.RealityShortId == "" {
-		node.RealityShortId = generateRandomShortId()
-	} else {
-		node.RealityShortId = req.RealityShortId
+		newShortId = generateRandomShortId()
+	}
+	if newShortId != node.RealityShortId {
+		configChanged = true
+	}
+	node.RealityShortId = newShortId
+
+	if req.TransportEnabled != node.TransportEnabled {
+		configChanged = true
 	}
 	node.TransportEnabled = req.TransportEnabled
+	if req.TransportType != node.TransportType {
+		configChanged = true
+	}
 	node.TransportType = req.TransportType
+	if req.WsPath != node.WsPath {
+		configChanged = true
+	}
 	node.WsPath = req.WsPath
+	if req.GrpcService != node.GrpcService {
+		configChanged = true
+	}
 	node.GrpcService = req.GrpcService
+	if req.TransportHost != node.TransportHost {
+		configChanged = true
+	}
 	node.TransportHost = req.TransportHost
+
+	if req.Flow != oldFlow {
+		configChanged = true
+	}
 	node.Flow = req.Flow
+	if req.SsMethod != node.SsMethod {
+		configChanged = true
+	}
 	node.SsMethod = req.SsMethod
+	if req.SsPassword != node.SsPassword {
+		configChanged = true
+	}
 	node.SsPassword = req.SsPassword
+	if req.SsObfsMode != node.SsObfsMode {
+		configChanged = true
+	}
 	node.SsObfsMode = req.SsObfsMode
+	if req.SsObfsHost != node.SsObfsHost {
+		configChanged = true
+	}
 	node.SsObfsHost = req.SsObfsHost
+	if req.Hy2Password != node.Hy2Password {
+		configChanged = true
+	}
 	node.Hy2Password = req.Hy2Password
+	if req.Hy2UpMbps != node.Hy2UpMbps {
+		configChanged = true
+	}
 	node.Hy2UpMbps = req.Hy2UpMbps
+	if req.Hy2DownMbps != node.Hy2DownMbps {
+		configChanged = true
+	}
 	node.Hy2DownMbps = req.Hy2DownMbps
+	if req.Hy2Obfs != node.Hy2Obfs {
+		configChanged = true
+	}
 	node.Hy2Obfs = req.Hy2Obfs
+	if req.Hy2ObfsPassword != node.Hy2ObfsPassword {
+		configChanged = true
+	}
 	node.Hy2ObfsPassword = req.Hy2ObfsPassword
+
+	if req.Enabled != node.Enabled {
+		configChanged = true
+	}
 	node.Enabled = req.Enabled
+	// Notes 不参与配置生成，不跟踪
 	node.Notes = req.Notes
 
 	if err := database.DB.Save(&node).Error; err != nil {
@@ -440,13 +524,17 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 		return
 	}
 
-	// 同步更新关联表中的 flow 字段
-	database.DB.Model(&database.NodeUserRelation{}).
-		Where("node_id = ?", node.ID).
-		Update("flow", node.Flow)
+	// 同步更新关联表中的 flow 字段（只在 flow 变化时）
+	if req.Flow != "" && req.Flow != oldFlow {
+		database.DB.Model(&database.NodeUserRelation{}).
+			Where("node_id = ?", node.ID).
+			Update("flow", node.Flow)
+	}
 
-	// 广播配置更新到所有在线 Agent
-	go agentHub.BroadcastConfigUpdate()
+	// 只在配置相关字段变化时广播
+	if configChanged {
+		go agentHub.BroadcastConfigUpdate()
+	}
 
 	successDataMsgJSON(c, "节点更新成功", node)
 }

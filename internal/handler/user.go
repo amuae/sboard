@@ -13,6 +13,7 @@ import (
 // CreateUserRequest 创建用户请求
 type CreateUserRequest struct {
 	Name         string `json:"name" binding:"required"`
+	UUID         string `json:"uuid"`
 	Level        int    `json:"level"`
 	ExpiryDate   string `json:"expiry_date" binding:"required"`
 	Enabled      int    `json:"enabled"`
@@ -131,6 +132,12 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 		return
 	}
 
+	// 设置 UUID：优先使用前端传来的，否则自动生成
+	userUUID := req.UUID
+	if _, err := uuid.Parse(userUUID); err != nil {
+		userUUID = uuid.New().String()
+	}
+
 	// 设置默认值
 	if req.Level == 0 {
 		req.Level = 1
@@ -144,7 +151,7 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 
 	user := database.ProxyUser{
 		Name:         req.Name,
-		UUID:         uuid.New().String(),
+		UUID:         userUUID,
 		Level:        req.Level,
 		ExpiryDate:   req.ExpiryDate,
 		Enabled:      req.Enabled,
@@ -168,29 +175,43 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 	successDataMsgJSON(c, "用户创建成功", user)
 }
 
-// linkUserToNodes 将用户链接到匹配等级的节点
+// linkUserToNodes 将用户链接到所有启用的节点（批量操作）
 func (s *Server) linkUserToNodes(user *database.ProxyUser) {
 	var nodes []database.InboundNode
 	database.DB.Where("enabled = ?", true).Find(&nodes)
+	if len(nodes) == 0 {
+		return
+	}
 
+	// 1. 构建节点 ID 列表
+	nodeIDs := make([]uint, len(nodes))
+	for i, n := range nodes {
+		nodeIDs[i] = n.ID
+	}
+
+	// 2. 单次查询已存在的关联
+	var existing []database.NodeUserRelation
+	database.DB.Where("user_id = ? AND node_id IN ?", user.ID, nodeIDs).Find(&existing)
+	existingSet := make(map[uint]bool, len(existing))
+	for _, r := range existing {
+		existingSet[r.NodeID] = true
+	}
+
+	// 3. 批量插入新关联
+	var newRelations []database.NodeUserRelation
 	for _, node := range nodes {
-		// 检查是否已存在关联
-		var count int64
-		database.DB.Model(&database.NodeUserRelation{}).
-			Where("node_id = ? AND user_id = ?", node.ID, user.ID).
-			Count(&count)
-		if count > 0 {
+		if existingSet[node.ID] {
 			continue
 		}
-
-		// 创建关联
-		relation := database.NodeUserRelation{
+		newRelations = append(newRelations, database.NodeUserRelation{
 			NodeID: node.ID,
 			UserID: user.ID,
 			UUID:   user.UUID,
 			Flow:   node.Flow,
-		}
-		database.DB.Create(&relation)
+		})
+	}
+	if len(newRelations) > 0 {
+		database.DB.Create(&newRelations)
 	}
 }
 
@@ -232,6 +253,9 @@ func (s *Server) handleUpdateUser(c *gin.Context) {
 	if req.ExpiryDate != "" {
 		user.ExpiryDate = req.ExpiryDate
 	}
+
+	// 只在 enabled 变化时需要推送配置
+	configChanged := req.Enabled != user.Enabled
 	user.Enabled = req.Enabled
 	user.TrafficLimit = req.TrafficLimit
 	user.TrafficUsed = req.TrafficUsed
@@ -250,8 +274,10 @@ func (s *Server) handleUpdateUser(c *gin.Context) {
 		Where("user_id = ?", user.ID).
 		Update("uuid", user.UUID)
 
-	// 广播配置更新到所有在线 Agent
-	go agentHub.BroadcastConfigUpdate()
+	// 只在 enabled 变化时广播配置更新
+	if configChanged {
+		go agentHub.BroadcastConfigUpdate()
+	}
 
 	successDataMsgJSON(c, "用户更新成功", user)
 }
