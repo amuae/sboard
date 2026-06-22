@@ -294,29 +294,44 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 	successDataMsgJSON(c, "节点创建成功", node)
 }
 
-// linkAllUsersToNode 将所有用户链接到节点
+// linkAllUsersToNode 将所有用户链接到节点（批量操作，避免 N+1 查询）
 func (s *Server) linkAllUsersToNode(node *database.InboundNode) {
 	var users []database.ProxyUser
 	database.DB.Where("enabled = ?", 1).Find(&users)
 
+	if len(users) == 0 {
+		return
+	}
+
+	// 1. 构建用户 ID 列表
+	userIDs := make([]uint, len(users))
+	for i, u := range users {
+		userIDs[i] = u.ID
+	}
+
+	// 2. 单次查询已存在的关联
+	var existing []database.NodeUserRelation
+	database.DB.Where("node_id = ? AND user_id IN ?", node.ID, userIDs).Find(&existing)
+	existingSet := make(map[uint]bool, len(existing))
+	for _, r := range existing {
+		existingSet[r.UserID] = true
+	}
+
+	// 3. 批量插入新关联
+	var newRelations []database.NodeUserRelation
 	for _, user := range users {
-		// 检查是否已存在关联
-		var count int64
-		database.DB.Model(&database.NodeUserRelation{}).
-			Where("node_id = ? AND user_id = ?", node.ID, user.ID).
-			Count(&count)
-		if count > 0 {
+		if existingSet[user.ID] {
 			continue
 		}
-
-		// 创建关联
-		relation := database.NodeUserRelation{
+		newRelations = append(newRelations, database.NodeUserRelation{
 			NodeID: node.ID,
 			UserID: user.ID,
 			UUID:   user.UUID,
 			Flow:   node.Flow,
-		}
-		database.DB.Create(&relation)
+		})
+	}
+	if len(newRelations) > 0 {
+		database.DB.Create(&newRelations)
 	}
 }
 

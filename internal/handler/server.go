@@ -54,7 +54,7 @@ func (s *Server) setupRoutes() {
 		// 认证路由（无需登录）
 		auth := api.Group("/auth")
 		{
-			auth.POST("/login", s.handleLogin)
+			auth.POST("/login", middleware.LoginRateLimit(), s.handleLogin)
 			auth.GET("/oauth/providers", s.handleGetOAuthProviders)
 			auth.GET("/github/login", s.handleGitHubLogin)
 			auth.GET("/github/callback", s.handleGitHubCallback)

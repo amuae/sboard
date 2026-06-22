@@ -16,7 +16,17 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		// 允许无 Origin 头的请求（agent 直连）
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		// 仅允许 panel 自身域名的 WebSocket 连接
+		host := r.Host
+		if host == "" {
+			return false
+		}
+		return origin == "http://"+host || origin == "https://"+host
 	},
 }
 
