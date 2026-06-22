@@ -1,7 +1,10 @@
 package config
 
 import (
+	crand "crypto/rand"
+	mrand "math/rand"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -83,12 +86,20 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// generateRandomString 生成随机字符串
+// generateRandomString 生成密码学安全的随机字符串
 func generateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
+	if _, err := crand.Read(b); err != nil {
+		// fallback to pseudo-random with timestamp seed if CSPRNG fails
+		rng := mrand.New(mrand.NewSource(time.Now().UnixNano()))
+		for i := range b {
+			b[i] = charset[rng.Intn(len(charset))]
+		}
+		return string(b)
+	}
 	for i := range b {
-		b[i] = charset[i%len(charset)]
+		b[i] = charset[int(b[i])%len(charset)]
 	}
 	return string(b)
 }

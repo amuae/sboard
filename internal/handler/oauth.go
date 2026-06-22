@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -31,8 +32,29 @@ type GitHubUser struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
-// OAuthStateStore 存储 OAuth state（简单实现，生产环境建议使用 Redis）
-var oauthStateStore = make(map[string]time.Time)
+// oauthStates 存储 OAuth state（加互斥锁防止高并发 panic）
+var (
+	oauthStateMu sync.RWMutex
+	oauthStates  = make(map[string]time.Time)
+)
+
+// setOAuthState 安全写入 OAuth state
+func setOAuthState(state string, expiry time.Time) {
+	oauthStateMu.Lock()
+	defer oauthStateMu.Unlock()
+	oauthStates[state] = expiry
+}
+
+// getOAuthState 安全读取并删除 OAuth state
+func getOAuthState(state string) (time.Time, bool) {
+	oauthStateMu.Lock()
+	defer oauthStateMu.Unlock()
+	expiry, ok := oauthStates[state]
+	if ok {
+		delete(oauthStates, state)
+	}
+	return expiry, ok
+}
 
 // generateState 生成随机 state
 func generateState() string {
@@ -77,7 +99,7 @@ func (s *Server) handleGitHubLogin(c *gin.Context) {
 
 	// 生成 state 防止 CSRF
 	state := generateState()
-	oauthStateStore[state] = time.Now().Add(10 * time.Minute)
+	setOAuthState(state, time.Now().Add(10*time.Minute))
 
 	// 清理过期的 state
 	go cleanupExpiredStates()
@@ -128,11 +150,10 @@ func (s *Server) handleGitHubCallback(c *gin.Context) {
 	}
 
 	// 验证 state
-	if expiry, ok := oauthStateStore[state]; !ok || time.Now().After(expiry) {
+	if _, ok := getOAuthState(state); !ok {
 		c.Redirect(http.StatusFound, "/?error=invalid_state")
 		return
 	}
-	delete(oauthStateStore, state)
 
 	// 交换 code 获取 access token
 	accessToken, err := s.exchangeGitHubCode(code, c, githubConfig)
@@ -323,10 +344,12 @@ func (s *Server) getGitHubCallbackURL(c *gin.Context) string {
 
 // cleanupExpiredStates 清理过期的 state
 func cleanupExpiredStates() {
+	oauthStateMu.Lock()
+	defer oauthStateMu.Unlock()
 	now := time.Now()
-	for state, expiry := range oauthStateStore {
+	for state, expiry := range oauthStates {
 		if now.After(expiry) {
-			delete(oauthStateStore, state)
+			delete(oauthStates, state)
 		}
 	}
 }

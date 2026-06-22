@@ -457,6 +457,32 @@ func (a *Agent) handleMessage(msg *Message) {
 	}
 }
 
+// allowedCommands 远程命令白名单 — 仅允许安全的管理操作
+var allowedCommands = map[string]bool{
+	// 系统信息
+	"uname":     true,
+	"hostname":  true,
+	"uptime":    true,
+	// 网络状态
+	"ip":        true,
+	"ss":        true,
+	"netstat":   true,
+	// 进程信息
+	"ps":        true,
+	"top":       true,
+	// 磁盘/内存
+	"df":        true,
+	"free":      true,
+	"du":        true,
+	// sing-box 管理
+	"sing-box":  true,
+	// 日志查看
+	"journalctl": true,
+	"tail":      true,
+	"cat":       true,
+	"ls":        true,
+}
+
 func (a *Agent) handleCommand(msg *Message) (*Message, error) {
 	var data struct {
 		Command string   `json:"command"`
@@ -466,6 +492,21 @@ func (a *Agent) handleCommand(msg *Message) (*Message, error) {
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		return nil, err
+	}
+
+	// 白名单校验：仅允许已知安全命令
+	if !allowedCommands[data.Command] {
+		errData, _ := json.Marshal(map[string]interface{}{
+			"exit_code": 1,
+			"stdout":    "",
+			"stderr":    fmt.Sprintf("command not allowed: %s", data.Command),
+			"duration":  0,
+		})
+		return &Message{
+			Type:      MsgTypeCommandResp,
+			Timestamp: time.Now().Unix(),
+			Data:      errData,
+		}, nil
 	}
 
 	timeout := time.Duration(data.Timeout) * time.Second

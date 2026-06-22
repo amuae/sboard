@@ -2,7 +2,6 @@ package handler
 
 import (
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -39,35 +38,14 @@ func (s *Server) handleLogin(c *gin.Context) {
 	// 查找管理员
 	var admin database.Admin
 	if err := database.DB.Where("username = ?", req.Username).First(&admin).Error; err != nil {
-		// 检查是否需要创建默认管理员
-		var count int64
-		database.DB.Model(&database.Admin{}).Count(&count)
-		if count == 0 {
-			// 创建默认管理员
-			defaultAdmin := &database.Admin{
-				Username: "admin",
-			}
-			defaultAdmin.SetPassword("admin123")
-			database.DB.Create(defaultAdmin)
-			log.Printf("已创建默认管理员账户: admin / admin123")
+		errorJSON(c, http.StatusUnauthorized, "用户名或密码错误")
+		return
+	}
 
-			// 如果用户使用默认凭据登录
-			if req.Username == "admin" && req.Password == "admin123" {
-				admin = *defaultAdmin
-			} else {
-				errorJSON(c, http.StatusUnauthorized, "用户名或密码错误")
-				return
-			}
-		} else {
-			errorJSON(c, http.StatusUnauthorized, "用户名或密码错误")
-			return
-		}
-	} else {
-		// 验证密码
-		if !admin.CheckPassword(req.Password) {
-			errorJSON(c, http.StatusUnauthorized, "用户名或密码错误")
-			return
-		}
+	// 验证密码
+	if !admin.CheckPassword(req.Password) {
+		errorJSON(c, http.StatusUnauthorized, "用户名或密码错误")
+		return
 	}
 
 	// 生成 JWT token

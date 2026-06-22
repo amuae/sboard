@@ -76,10 +76,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			tokenString, _ = c.Cookie("sboard_token")
 		}
 
-		// 如果还没有，从查询参数获取
-		if tokenString == "" {
-			tokenString = c.Query("token")
-		}
+		// 如果还没有，拒绝（不再支持 URL query 参数投递 token）
 
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -110,7 +107,12 @@ func AuthMiddleware() gin.HandlerFunc {
 // CORSMiddleware CORS 中间件
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		c.Header("Access-Control-Allow-Origin", origin)
+		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
 		c.Header("Access-Control-Max-Age", "86400")
