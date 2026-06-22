@@ -67,12 +67,14 @@ func (c *AgentConnection) IsAlive() bool {
 
 // AgentHub Agent 连接管理器
 type AgentHub struct {
-	agents     map[string]*AgentConnection // agentID -> connection
-	serverMap  map[uint]*AgentConnection   // serverID -> connection
-	mu         sync.RWMutex
-	msgChan    chan *AgentMessage
-	pendingReq map[string]chan *agent.Message // msgID -> response channel
-	pendingMu  sync.RWMutex
+	agents       map[string]*AgentConnection // agentID -> connection
+	serverMap    map[uint]*AgentConnection   // serverID -> connection
+	mu           sync.RWMutex
+	msgChan      chan *AgentMessage
+	pendingReq   map[string]chan *agent.Message // msgID -> response channel
+	pendingMu    sync.RWMutex
+	syncDebounce *time.Timer // 配置同步防抖定时器
+	syncDebounceMu sync.Mutex
 }
 
 // AgentMessage 带连接的消息
@@ -375,9 +377,28 @@ func (h *AgentHub) GetOnlineServers() []uint {
 }
 
 // BroadcastConfigUpdate 向所有存活的 Agent 并发广播配置更新（单向通知，不等待响应）
+// 使用 3 秒防抖：连续多次调用只触发最后一次，避免批量修改时重复推送配置
 // 存活判断：12秒内心跳达到4次
 // 完全异步执行，不阻塞调用者
 func (h *AgentHub) BroadcastConfigUpdate() {
+	h.syncDebounceMu.Lock()
+	if h.syncDebounce != nil {
+		h.syncDebounce.Reset(3 * time.Second)
+		h.syncDebounceMu.Unlock()
+		return
+	}
+	h.syncDebounce = time.AfterFunc(3*time.Second, func() {
+		h.syncDebounceMu.Lock()
+		h.syncDebounce = nil
+		h.syncDebounceMu.Unlock()
+
+		h.doSyncConfig()
+	})
+	h.syncDebounceMu.Unlock()
+}
+
+// doSyncConfig 实际执行配置同步（由防抖定时器触发）
+func (h *AgentHub) doSyncConfig() {
 	// 快速收集存活的 Agent 连接信息，尽快释放锁
 	h.mu.RLock()
 	aliveAgents := make([]struct {
