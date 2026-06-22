@@ -10,7 +10,19 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// DB 数据库实例（向后兼容，推荐使用 GetDB()）
 var DB *gorm.DB
+
+// SetDB 设置数据库实例（用于依赖注入/测试）
+func SetDB(d *gorm.DB) { DB = d }
+
+// GetDB 获取数据库实例，若未初始化则 panic
+func GetDB() *gorm.DB {
+	if DB == nil {
+		panic("database not initialized, call Init() first")
+	}
+	return DB
+}
 
 // Init 初始化数据库连接
 func Init(dbPath string) error {
@@ -72,6 +84,7 @@ func autoMigrate() error {
 	err := DB.AutoMigrate(
 		&Admin{},
 		&ProxyUser{},
+		&UserExtraUUID{},
 		&InboundNode{},
 		&NodeUserRelation{},
 		&Server{},
@@ -89,10 +102,11 @@ func autoMigrate() error {
 	return migrateUserExtraUUIDs()
 }
 
-// migrateUserExtraUUIDs 为老用户补充生成额外 UUID
+// migrateUserExtraUUIDs 为老用户补充生成额外 UUID 并填充 UserExtraUUID 表
 func migrateUserExtraUUIDs() error {
 	var users []ProxyUser
-	// 查找 UUID1 为空的用户（说明是老用户，没有额外 UUID）
+
+	// 1. 查找 UUID1 为空的用户（老用户没有额外 UUID），为其生成
 	if err := DB.Where("uuid1 IS NULL OR uuid1 = ''").Find(&users).Error; err != nil {
 		return err
 	}
@@ -114,12 +128,47 @@ func migrateUserExtraUUIDs() error {
 			continue
 		}
 		log.Printf("已为用户 %s 生成 10 个额外 UUID", user.Name)
+
+		// 同步到 UserExtraUUID 表
+		uuids := []string{user.UUID1, user.UUID2, user.UUID3, user.UUID4, user.UUID5, user.UUID6, user.UUID7, user.UUID8, user.UUID9, user.UUID10}
+		for slot, uid := range uuids {
+			if uid != "" {
+				if err := DB.Create(&UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid}).Error; err != nil {
+					log.Printf("为用户 %s 同步额外 UUID slot %d 到关联表失败: %v", user.Name, slot+1, err)
+				}
+			}
+		}
+	}
+
+	// 2. 迁移已有 UUID1-UUID10 但尚未写入 UserExtraUUID 表的用户
+	return migrateExistingUserExtraUUIDs()
+}
+
+// migrateExistingUserExtraUUIDs 将已有 UUID1-UUID10 的用户数据同步到 UserExtraUUID 表
+func migrateExistingUserExtraUUIDs() error {
+	var users []ProxyUser
+	if err := DB.Where("uuid1 IS NOT NULL AND uuid1 != ''").Find(&users).Error; err != nil {
+		return err
+	}
+
+	for _, user := range users {
+		// 检查是否已有 UserExtraUUID 记录
+		var count int64
+		DB.Model(&UserExtraUUID{}).Where("user_id = ?", user.ID).Count(&count)
+		if count > 0 {
+			continue
+		}
+
+		uuids := []string{user.UUID1, user.UUID2, user.UUID3, user.UUID4, user.UUID5, user.UUID6, user.UUID7, user.UUID8, user.UUID9, user.UUID10}
+		for slot, uid := range uuids {
+			if uid != "" {
+				if err := DB.Create(&UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid}).Error; err != nil {
+					log.Printf("为用户 %s (ID=%d) 迁移额外 UUID slot %d 失败: %v", user.Name, user.ID, slot+1, err)
+				}
+			}
+		}
+		log.Printf("已为用户 %s (ID=%d) 迁移额外 UUID 到关联表", user.Name, user.ID)
 	}
 
 	return nil
-}
-
-// GetDB 获取数据库实例
-func GetDB() *gorm.DB {
-	return DB
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,16 +56,20 @@ type ProxyUser struct {
 	Notes        string `gorm:"type:text" json:"notes"`
 
 	// 额外 UUID (用于落地出站路由，与 ServerOutbound 序号对应)
-	UUID1  string `gorm:"size:36" json:"uuid_1"`
-	UUID2  string `gorm:"size:36" json:"uuid_2"`
-	UUID3  string `gorm:"size:36" json:"uuid_3"`
-	UUID4  string `gorm:"size:36" json:"uuid_4"`
-	UUID5  string `gorm:"size:36" json:"uuid_5"`
-	UUID6  string `gorm:"size:36" json:"uuid_6"`
-	UUID7  string `gorm:"size:36" json:"uuid_7"`
-	UUID8  string `gorm:"size:36" json:"uuid_8"`
-	UUID9  string `gorm:"size:36" json:"uuid_9"`
-	UUID10 string `gorm:"size:36" json:"uuid_10"`
+	// 保留 UUID1-UUID10 列用于向后兼容，新代码应通过 UserExtraUUID 表操作
+	UUID1  string `gorm:"size:36" json:"-"`
+	UUID2  string `gorm:"size:36" json:"-"`
+	UUID3  string `gorm:"size:36" json:"-"`
+	UUID4  string `gorm:"size:36" json:"-"`
+	UUID5  string `gorm:"size:36" json:"-"`
+	UUID6  string `gorm:"size:36" json:"-"`
+	UUID7  string `gorm:"size:36" json:"-"`
+	UUID8  string `gorm:"size:36" json:"-"`
+	UUID9  string `gorm:"size:36" json:"-"`
+	UUID10 string `gorm:"size:36" json:"-"`
+
+	// extraUUIDs 运行时缓存（懒加载），不持久化到数据库
+	extraUUIDs []string `gorm:"-" json:"-"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
@@ -76,7 +81,7 @@ func (u *ProxyUser) BeforeCreate(tx *gorm.DB) error {
 	if u.UUID == "" {
 		u.UUID = uuid.New().String()
 	}
-	// 生成 10 个额外 UUID（仅当为空时）
+	// 生成 10 个额外 UUID（仅当为空时）— 保留在 UUID1-UUID10 列中以向后兼容
 	if u.UUID1 == "" {
 		u.UUID1 = uuid.New().String()
 	}
@@ -110,43 +115,131 @@ func (u *ProxyUser) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// GetExtraUUID 获取指定序号的额外UUID (1-10)
-func (u *ProxyUser) GetExtraUUID(index int) string {
-	switch index {
-	case 1:
-		return u.UUID1
-	case 2:
-		return u.UUID2
-	case 3:
-		return u.UUID3
-	case 4:
-		return u.UUID4
-	case 5:
-		return u.UUID5
-	case 6:
-		return u.UUID6
-	case 7:
-		return u.UUID7
-	case 8:
-		return u.UUID8
-	case 9:
-		return u.UUID9
-	case 10:
-		return u.UUID10
-	default:
-		return ""
+// AfterCreate 创建后将额外 UUID 同步到 UserExtraUUID 关联表
+func (u *ProxyUser) AfterCreate(tx *gorm.DB) error {
+	uuids := []string{u.UUID1, u.UUID2, u.UUID3, u.UUID4, u.UUID5, u.UUID6, u.UUID7, u.UUID8, u.UUID9, u.UUID10}
+	for slot, uid := range uuids {
+		if uid != "" {
+			if err := tx.Create(&UserExtraUUID{
+				UserID: u.ID,
+				Slot:   slot + 1,
+				UUID:   uid,
+			}).Error; err != nil {
+				return err
+			}
+		}
 	}
+	return nil
+}
+
+// GetExtraUUID 获取指定序号的额外UUID (1-10)。使用懒加载缓存，不执行 DB 查询。
+func (u *ProxyUser) GetExtraUUID(index int) string {
+	u.ensureExtraUUIDsLoaded()
+	if index >= 1 && index <= len(u.extraUUIDs) {
+		return u.extraUUIDs[index-1]
+	}
+	return ""
 }
 
 // GetAllExtraUUIDs 获取所有额外UUID列表 (非空的)
 func (u *ProxyUser) GetAllExtraUUIDs() []string {
-	var uuids []string
-	for i := 1; i <= 10; i++ {
-		if uid := u.GetExtraUUID(i); uid != "" {
-			uuids = append(uuids, uid)
+	u.ensureExtraUUIDsLoaded()
+	var result []string
+	for _, uid := range u.extraUUIDs {
+		if uid != "" {
+			result = append(result, uid)
 		}
 	}
-	return uuids
+	return result
+}
+
+// ensureExtraUUIDsLoaded 懒加载 extraUUIDs 缓存：优先从 UserExtraUUID 表，回退到 UUID1-UUID10 字段
+func (u *ProxyUser) ensureExtraUUIDsLoaded() {
+	if u.extraUUIDs != nil {
+		return
+	}
+
+	// 先以 UUID1-UUID10 作为回退基线
+	u.extraUUIDs = []string{
+		u.UUID1, u.UUID2, u.UUID3, u.UUID4, u.UUID5,
+		u.UUID6, u.UUID7, u.UUID8, u.UUID9, u.UUID10,
+	}
+
+	// 如果 ID 为 0（未持久化），仅使用回退值
+	if u.ID == 0 {
+		return
+	}
+
+	// 尝试从 UserExtraUUID 表加载（覆盖回退值）
+	db := GetDB()
+	var records []UserExtraUUID
+	if err := db.Where("user_id = ?", u.ID).Order("slot asc").Find(&records).Error; err == nil {
+		for _, r := range records {
+			if r.Slot >= 1 && r.Slot <= 10 {
+				u.extraUUIDs[r.Slot-1] = r.UUID
+			}
+		}
+	}
+}
+
+// SetExtraUUID 设置指定槽位的额外 UUID（同时更新关联表和运行时缓存）
+func (u *ProxyUser) SetExtraUUID(slot int, val string) error {
+	if slot < 1 || slot > 10 {
+		return fmt.Errorf("slot must be between 1 and 10, got %d", slot)
+	}
+
+	u.ensureExtraUUIDsLoaded()
+	u.extraUUIDs[slot-1] = val
+
+	// 同步更新 UUID1-UUID10 向后兼容字段
+	switch slot {
+	case 1:
+		u.UUID1 = val
+	case 2:
+		u.UUID2 = val
+	case 3:
+		u.UUID3 = val
+	case 4:
+		u.UUID4 = val
+	case 5:
+		u.UUID5 = val
+	case 6:
+		u.UUID6 = val
+	case 7:
+		u.UUID7 = val
+	case 8:
+		u.UUID8 = val
+	case 9:
+		u.UUID9 = val
+	case 10:
+		u.UUID10 = val
+	}
+
+	// 如果尚未持久化，仅更新内存缓存
+	if u.ID == 0 {
+		return nil
+	}
+
+	// 写入 UserExtraUUID 表（upsert）
+	db := GetDB()
+	var existing UserExtraUUID
+	if err := db.Where("user_id = ? AND slot = ?", u.ID, slot).First(&existing).Error; err == nil {
+		existing.UUID = val
+		return db.Save(&existing).Error
+	}
+	return db.Create(&UserExtraUUID{
+		UserID: u.ID,
+		Slot:   slot,
+		UUID:   val,
+	}).Error
+}
+
+// UserExtraUUID 用户额外 UUID 关联表（替代硬编码的 UUID1-UUID10）
+type UserExtraUUID struct {
+	ID     uint   `gorm:"primaryKey" json:"id"`
+	UserID uint   `gorm:"uniqueIndex:idx_user_slot;not null" json:"user_id"`
+	Slot   int    `gorm:"uniqueIndex:idx_user_slot;not null" json:"slot"` // 槽位 1-10，与 ServerOutbound 对应
+	UUID   string `gorm:"size:36;not null" json:"uuid"`
 }
 
 // InboundNode 入站节点表

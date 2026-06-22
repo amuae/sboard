@@ -158,42 +158,59 @@ func (s *ServiceManager) EnsureServiceUser(serviceName, installPath string) (str
 
 // updateUserHome 更新用户的 home 目录
 func (s *ServiceManager) updateUserHome(username, newHome string) {
-	if s.initSystem == InitProcd {
-		// OpenWrt: 直接替换 /etc/passwd 中的 home 字段
-		data, err := os.ReadFile("/etc/passwd")
-		if err != nil {
-			return
-		}
-		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			fields := strings.Split(line, ":")
-			if len(fields) >= 7 && fields[0] == username {
-				fields[5] = newHome
-				lines[i] = strings.Join(fields, ":")
-				break
-			}
-		}
-		os.WriteFile("/etc/passwd", []byte(strings.Join(lines, "\n")), 0644)
-	} else {
-		// 标准 Linux: usermod
+	// 优先使用 usermod 命令
+	if _, err := exec.LookPath("usermod"); err == nil {
 		exec.Command("usermod", "-d", newHome, username).Run()
+		log.Printf("已更新用户 %s 的 home 目录为 %s", username, newHome)
+		return
+	}
+	// 回退: 直接编辑 /etc/passwd（仅用于无 usermod 的环境，如部分 busybox）
+	log.Printf("⚠ usermod 不可用，直接编辑 /etc/passwd 更新 %s 的 home 目录", username)
+	data, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		log.Printf("更新 home 目录失败: %v", err)
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 7 && fields[0] == username {
+			fields[5] = newHome
+			lines[i] = strings.Join(fields, ":")
+			break
+		}
+	}
+	// 先备份，再写入
+	_ = os.WriteFile("/etc/passwd.bak", data, 0600)
+	if err := os.WriteFile("/etc/passwd", []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		log.Printf("写入 /etc/passwd 失败: %v", err)
+		return
 	}
 	log.Printf("已更新用户 %s 的 home 目录为 %s", username, newHome)
 }
 
 // createOpenWrtUser 在 OpenWrt 上创建用户（busybox 环境）
 func (s *ServiceManager) createOpenWrtUser(username string, uid int, homeDir string) error {
-	// 检查是否有 useradd
-	if _, err := exec.LookPath("useradd"); err == nil {
-		cmd := exec.Command("useradd", "-r", "-s", "/bin/false",
-			"-M", "-d", homeDir, "-u", strconv.Itoa(uid), username)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("useradd 创建用户失败: %s %v", string(output), err)
+	// 优先用 adduser (busybox)，其次 useradd
+	for _, bin := range []string{"adduser", "useradd"} {
+		if _, err := exec.LookPath(bin); err == nil {
+			cmd := exec.Command(bin, "-H", "-s", "/bin/false",
+				"-D", "-h", homeDir, "-u", strconv.Itoa(uid), username)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				// adduser 参数可能不同，回退到 useradd 风格
+				cmd2 := exec.Command(bin, "-r", "-s", "/bin/false",
+					"-M", "-d", homeDir, "-u", strconv.Itoa(uid), username)
+				if output2, err2 := cmd2.CombinedOutput(); err2 != nil {
+					log.Printf("%s 创建用户失败 (尝试2种参数): %s / %s", bin, string(output), string(output2))
+					continue
+				}
+			}
+			return nil
 		}
-		return nil
 	}
 
-	// 回退: 直接写 /etc/passwd 和 /etc/group
+	// 最终回退: 直接写 /etc/passwd + /etc/group（需 root + 锁文件保护）
+	log.Printf("⚠ 无可用的 useradd/adduser，直接写入 /etc/passwd 创建用户 %s", username)
 	passwdLine := fmt.Sprintf("%s:x:%d:%d:%s:%s:/bin/false\n", username, uid, uid, username, homeDir)
 	groupLine := fmt.Sprintf("%s:x:%d:\n", username, uid)
 
