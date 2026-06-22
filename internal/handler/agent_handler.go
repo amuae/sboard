@@ -419,6 +419,7 @@ func (h *AgentHub) BroadcastConfigUpdate() {
 				ConfigType: "sing-box",
 				Content:    config,
 				Restart:    true,
+				TargetPath: "/opt/sboard/sing-box",
 			}
 			rawData, _ := json.Marshal(data)
 
@@ -602,6 +603,7 @@ func (s *Server) handleSyncConfigToAgent(c *gin.Context) {
 		ConfigType: configType,
 		Content:    config,
 		Restart:    req.Restart,
+		TargetPath: "/opt/sboard/sing-box",
 	}
 	rawData, _ := json.Marshal(data)
 

@@ -675,19 +675,24 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 		ConfigType string `json:"config_type"`
 		Content    string `json:"content"`
 		Restart    bool   `json:"restart"`
+		TargetPath string `json:"target_path"` // 目标路径，如 /opt/sboard/sing-box
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("解析配置同步消息失败: %v", err)
 		return
 	}
 
-	// 确定配置路径
+	// 确定配置路径：优先使用面板传入的 TargetPath，回退到本地 ConfigDir
 	var configPath string
 	var serviceName string
+	configDir := a.config.ConfigDir
+	if data.TargetPath != "" {
+		configDir = data.TargetPath
+	}
 	coreType := strings.ToLower(data.ConfigType)
 	switch coreType {
 	case "sing-box":
-		configPath = filepath.Join(a.config.ConfigDir, "config.json")
+		configPath = filepath.Join(configDir, "config.json")
 		serviceName = "sing-box"
 	default:
 		log.Printf("未知配置类型: %s", data.ConfigType)

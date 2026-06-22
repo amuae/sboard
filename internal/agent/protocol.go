@@ -116,6 +116,7 @@ type SyncConfigData struct {
 	ConfigType string `json:"config_type"` // sing-box
 	Content    string `json:"content"`     // 配置内容
 	Restart    bool   `json:"restart"`     // 是否重启服务
+	TargetPath string `json:"target_path"` // 目标路径，如 /opt/sboard/sing-box
 }
 
 // RestartData 重启服务数据

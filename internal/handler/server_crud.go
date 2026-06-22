@@ -501,6 +501,7 @@ func (s *Server) handleDeployServerViaAgent(c *gin.Context, server *database.Ser
 			ConfigType: "sing-box",
 			Content:    config,
 			Restart:    true,
+			TargetPath: "/opt/sboard/sing-box",
 		}
 		rawData, _ := json.Marshal(data)
 
