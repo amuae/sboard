@@ -407,15 +407,6 @@ export const updateAllAgents = () => {
   return api.post('/servers/update-agents')
 }
 
-// 部署相关 - SSE
-export const getDeployUrl = (serverId: number) => {
-  return `/api/servers/${serverId}/deploy`
-}
-
-export const getDeployFolderUrl = (serverId: number) => {
-  return `/api/servers/${serverId}/deploy-folder`
-}
-
 // Agent 相关
 export const regenerateAgentToken = (serverId: number) => {
   return api.post(`/servers/${serverId}/agent/regenerate-token`)
@@ -427,23 +418,6 @@ export const sendAgentCommand = (serverId: number, command: string) => {
 
 export const getAgentStatus = (serverId: number) => {
   return api.get(`/servers/${serverId}/agent/status`)
-}
-
-// ============ 设置相关 ============
-export interface Settings {
-  id: number
-  admin_username: string
-  sublink_domain: string
-  created_at: string
-  updated_at: string
-}
-
-export const getSettings = () => {
-  return api.get<Settings>('/settings')
-}
-
-export const updateSettings = (settings: Partial<Settings>) => {
-  return api.post('/settings', settings)
 }
 
 // ============ 订阅配置相关 ============

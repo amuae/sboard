@@ -151,6 +151,16 @@ func (s *Server) setupRoutes() {
 			// 配置预览
 			protected.GET("/config/preview", s.handlePreviewConfig)
 
+			// 外部节点管理
+			externalNodes := protected.Group("/external-nodes")
+			{
+				externalNodes.GET("", s.handleListExternalNodes)
+				externalNodes.GET("/:id", s.handleGetExternalNode)
+				externalNodes.POST("", s.handleCreateExternalNode)
+				externalNodes.PUT("/:id", s.handleUpdateExternalNode)
+				externalNodes.DELETE("/:id", s.handleDeleteExternalNode)
+			}
+
 			// 用户到期检查
 			protected.POST("/users/check-expiry", s.handleCheckExpiredUsers)
 			protected.GET("/users/expiring", s.handleGetExpiringUsers)

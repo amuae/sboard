@@ -90,6 +90,7 @@ func autoMigrate() error {
 		&Server{},
 		&ServerNodeConfig{},
 		&ServerOutbound{},
+		&ExternalNode{},
 		&DeployLog{},
 		&SystemConfig{},
 		&OAuthProvider{},
