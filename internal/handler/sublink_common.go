@@ -503,9 +503,16 @@ func getSS2022Password(node *database.InboundNode, uuid string) string {
 	return node.SsPassword + ":" + userKey
 }
 
+// sublinkSalt 用于混淆 Shadowsocks 2022 决定性用户密钥派生，防止根据 UUID 推算密码
+var sublinkSalt string
+
 // generateSS2022UserKeyForSublink 为 Shadowsocks 2022 生成用户密钥
 func generateSS2022UserKeyForSublink(uuid string, method string) string {
-	hash := sha256.Sum256([]byte(uuid))
+	data := []byte(uuid)
+	if sublinkSalt != "" {
+		data = append(data, []byte(sublinkSalt)...)
+	}
+	hash := sha256.Sum256(data)
 
 	var keyLen int
 	switch method {

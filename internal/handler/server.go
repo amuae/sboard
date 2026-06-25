@@ -31,6 +31,9 @@ func NewServer(cfg *config.Config, frontendFS embed.FS) *Server {
 	// 初始化 JWT
 	middleware.InitJWT(cfg.Security.JWTSecret)
 
+	// 初始化 sublink 的 SS2022 混淆盐值
+	sublinkSalt = cfg.Security.JWTSecret
+
 	router := gin.New()
 	router.Use(gin.Recovery())
 	// 不输出请求日志

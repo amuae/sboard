@@ -138,6 +138,25 @@ func TestGenerateSS2022UserKeyForSublink_Deterministic(t *testing.T) {
 	}
 }
 
+func TestGenerateSS2022UserKeyForSublink_WithSalt(t *testing.T) {
+	uuid := "some-user-uuid"
+	method := "2022-blake3-aes-256-gcm"
+
+	// Save original salt and restore after test
+	oldSalt := sublinkSalt
+	defer func() { sublinkSalt = oldSalt }()
+
+	sublinkSalt = ""
+	noSaltKey := generateSS2022UserKeyForSublink(uuid, method)
+
+	sublinkSalt = "my-secret-jwt-key"
+	saltedKey := generateSS2022UserKeyForSublink(uuid, method)
+
+	if noSaltKey == saltedKey {
+		t.Errorf("salted key should differ from unsalted key")
+	}
+}
+
 // ========== matchRegex tests ==========
 
 func TestMatchRegex(t *testing.T) {
