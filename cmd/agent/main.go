@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -956,18 +957,19 @@ func isPrivateIP(ipStr string) bool {
 // getPublicIPFromAPI 通过外部 API 获取公网 IPv4
 // 使用多个可靠的 API 作为备选，确保高可用性，只返回 IPv4
 func getPublicIPFromAPI() string {
-	// API 列表：包含多个可靠的公网 IPv4 查询服务
-	// 优先级排列，优先返回 IPv4 的 API
+	// API 列表：优先排列国内可能被分流规则视为直连的接口，以绕过透明代理获取真实家宽 IP
 	apis := []string{
-		// 专门返回 IPv4 的 API
-		"https://api.ip.sb/ip",            // 国际通用，响应快，支持 IPv4/IPv6
-		"https://checkip.amazonaws.com",   // AWS 官方，通常返回 IPv4
-		"https://api.ipify.org",           // 国际流行，专门返回 IPv4
-		"https://ifconfig.me",             // 通用 API，可靠
+		"http://ip.3322.net",              // 国内，纯净 IP
+		"https://myip.ipip.net",           // 国内，带中文，需要正则提取
+		"https://ddns.oray.com/checkip",   // 国内，带 HTML，需要正则提取
+		"https://api.ip.sb/ip",            // 国际通用，响应快
+		"https://checkip.amazonaws.com",   // AWS 官方
+		"https://api.ipify.org",           // 国际流行
+		"https://ifconfig.me",             // 通用 API
 		"https://icanhazip.com",           // 简洁 API
-		"https://ident.me",                // 备选 API
-		"https://4.ipw.cn",                // 国内 IPv4 API
 	}
+
+	ipv4Regex := regexp.MustCompile(`(?m)(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)`)
 
 	for _, apiURL := range apis {
 		log.Printf("[IP] 尝试 API: %s", apiURL)
@@ -985,7 +987,13 @@ func getPublicIPFromAPI() string {
 			continue
 		}
 
-		ip := strings.TrimSpace(string(body))
+		// 使用正则从响应中提取第一个合法的 IPv4
+		match := ipv4Regex.FindString(string(body))
+		if match == "" {
+			log.Printf("[IP] 响应中未找到 IPv4 地址: %s", string(body))
+			continue
+		}
+		ip := match
 
 		// 验证 IP 格式
 		parsedIP := net.ParseIP(ip)
@@ -1021,11 +1029,13 @@ func getPublicIPFromAPI() string {
 func getPublicIPv6FromAPI() string {
 	// IPv6 专用 API 列表：优先使用只返回 IPv6 的 API
 	apis := []string{
+		"https://v6.myip.la",          // 国内，支持 IPv6
 		"https://api6.ipify.org",      // 国际流行，专门返回 IPv6
-		"https://6.ipw.cn",            // 国内 IPv6 API
 		"https://ifconfig.co",         // 通用 API，支持 IPv6
 		"https://ipv6.icanhazip.com",  // 简洁 IPv6 API
 	}
+
+	ipv6Regex := regexp.MustCompile(`(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?:(?::[0-9a-f]{1,4}){1,6})|:(?:(?::[0-9a-f]{1,4}){1,7}|:)`)
 
 	for _, apiURL := range apis {
 		log.Printf("[IP] 尝试 IPv6 API: %s", apiURL)
@@ -1043,7 +1053,13 @@ func getPublicIPv6FromAPI() string {
 			continue
 		}
 
-		ip := strings.TrimSpace(string(body))
+		// 使用正则提取 IPv6
+		match := ipv6Regex.FindString(string(body))
+		if match == "" {
+			log.Printf("[IP] 响应中未找到 IPv6 地址: %s", string(body))
+			continue
+		}
+		ip := match
 
 		// 验证 IP 格式
 		parsedIP := net.ParseIP(ip)
