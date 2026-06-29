@@ -40,6 +40,12 @@ var embeddedConfigs embed.FS
 var (
 	Version        = "dev" // 构建时通过 -ldflags "-X main.Version=..." 注入
 	serviceManager = NewServiceManager()
+
+	// directClient 绕过系统代理（HTTP_PROXY）用于获取本机公网 IP
+	directClient = &http.Client{
+		Transport: &http.Transport{Proxy: nil},
+		Timeout:   3 * time.Second,
+	}
 )
 
 // Agent 配置
@@ -963,12 +969,10 @@ func getPublicIPFromAPI() string {
 		"https://4.ipw.cn",                // 国内 IPv4 API
 	}
 
-	client := &http.Client{Timeout: 3 * time.Second}
-
 	for _, apiURL := range apis {
 		log.Printf("[IP] 尝试 API: %s", apiURL)
 
-		resp, err := client.Get(apiURL)
+		resp, err := directClient.Get(apiURL)
 		if err != nil {
 			log.Printf("[IP] API %s 失败: %v", apiURL, err)
 			continue
@@ -1023,12 +1027,10 @@ func getPublicIPv6FromAPI() string {
 		"https://ipv6.icanhazip.com",  // 简洁 IPv6 API
 	}
 
-	client := &http.Client{Timeout: 3 * time.Second}
-
 	for _, apiURL := range apis {
 		log.Printf("[IP] 尝试 IPv6 API: %s", apiURL)
 
-		resp, err := client.Get(apiURL)
+		resp, err := directClient.Get(apiURL)
 		if err != nil {
 			log.Printf("[IP] IPv6 API %s 失败: %v", apiURL, err)
 			continue
