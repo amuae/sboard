@@ -691,8 +691,12 @@ func buildUserEntry(protocol, name, uuid, flow string, node *database.InboundNod
 // generateSS2022UserKey 为 Shadowsocks 2022 生成用户密钥
 // 根据加密方法生成正确长度的密钥（16 或 32 字节）
 func generateSS2022UserKey(uuid string, method string) string {
-	// 使用 UUID 的 SHA256 哈希作为密钥来源
-	hash := sha256.Sum256([]byte(uuid))
+	// 使用 UUID + JWTSecret 的 SHA256 哈希作为密钥来源（与订阅端一致）
+	data := []byte(uuid)
+	if sublinkSalt != "" {
+		data = append(data, []byte(sublinkSalt)...)
+	}
+	hash := sha256.Sum256(data)
 
 	var keyLen int
 	switch method {
