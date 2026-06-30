@@ -957,10 +957,8 @@ func isPrivateIP(ipStr string) bool {
 // getPublicIPFromAPI 通过外部 API 获取公网 IPv4
 func getPublicIPFromAPI() string {
 	apis := []string{
-		"https://ip125.com/api/myip",     // 国内，JSON {ip:"x.x.x.x"}，响应快
-		"https://ipinfo.io/json",          // 国际，JSON {ip:"x.x.x.x"}，准确
-		"https://checkip.amazonaws.com",   // AWS 官方，纯 IP
-		"https://api.ipify.org",           // 国际流行，纯 IP
+		"https://ip125.com/api/myip",     // 国内，JSON，~0.2s
+		"https://checkip.amazonaws.com",   // AWS，纯 IP
 	}
 
 	ipv4Regex := regexp.MustCompile(`(?m)(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)`)
@@ -1021,8 +1019,8 @@ func getPublicIPFromAPI() string {
 // getPublicIPv6FromAPI 通过外部 API 获取公网 IPv6
 func getPublicIPv6FromAPI() string {
 	apis := []string{
-		"https://api6.ipify.org",      // 国际，纯 IPv6
-		"https://ifconfig.co",         // 通用 API，支持 IPv6
+		"https://api6.ipify.org",      // 纯 IPv6
+		"https://ifconfig.co",         // 支持 IPv6
 	}
 
 	ipv6Regex := regexp.MustCompile(`(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?:(?::[0-9a-f]{1,4}){1,6})|:(?:(?::[0-9a-f]{1,4}){1,7}|:)`)
