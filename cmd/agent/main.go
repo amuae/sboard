@@ -955,18 +955,11 @@ func isPrivateIP(ipStr string) bool {
 }
 
 // getPublicIPFromAPI 通过外部 API 获取公网 IPv4
-// 使用多个可靠的 API 作为备选，确保高可用性，只返回 IPv4
 func getPublicIPFromAPI() string {
-	// API 列表：优先排列国内可能被分流规则视为直连的接口，以绕过透明代理获取真实家宽 IP
 	apis := []string{
-		"http://ip.3322.net",              // 国内，纯净 IP
-		"https://myip.ipip.net",           // 国内，带中文，需要正则提取
-		"https://ddns.oray.com/checkip",   // 国内，带 HTML，需要正则提取
-		"https://api.ip.sb/ip",            // 国际通用，响应快
-		"https://checkip.amazonaws.com",   // AWS 官方
-		"https://api.ipify.org",           // 国际流行
-		"https://ifconfig.me",             // 通用 API
-		"https://icanhazip.com",           // 简洁 API
+		"https://ip125.com/api/myip",     // 国内，JSON {ip:"x.x.x.x"}，响应快
+		"https://checkip.amazonaws.com",   // AWS 官方，纯 IP
+		"https://api.ipify.org",           // 国际流行，纯 IP
 	}
 
 	ipv4Regex := regexp.MustCompile(`(?m)(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)`)
@@ -1025,14 +1018,10 @@ func getPublicIPFromAPI() string {
 }
 
 // getPublicIPv6FromAPI 通过外部 API 获取公网 IPv6
-// 使用多个可靠的 API 作为备选，确保高可用性，只返回 IPv6
 func getPublicIPv6FromAPI() string {
-	// IPv6 专用 API 列表：优先使用只返回 IPv6 的 API
 	apis := []string{
-		"https://v6.myip.la",          // 国内，支持 IPv6
-		"https://api6.ipify.org",      // 国际流行，专门返回 IPv6
+		"https://api6.ipify.org",      // 国际，纯 IPv6
 		"https://ifconfig.co",         // 通用 API，支持 IPv6
-		"https://ipv6.icanhazip.com",  // 简洁 IPv6 API
 	}
 
 	ipv6Regex := regexp.MustCompile(`(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?:(?::[0-9a-f]{1,4}){1,6})|:(?:(?::[0-9a-f]{1,4}){1,7}|:)`)
