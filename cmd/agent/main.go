@@ -958,6 +958,7 @@ func isPrivateIP(ipStr string) bool {
 func getPublicIPFromAPI() string {
 	apis := []string{
 		"https://ip125.com/api/myip",     // 国内，JSON {ip:"x.x.x.x"}，响应快
+		"https://ipinfo.io/json",          // 国际，JSON {ip:"x.x.x.x"}，准确
 		"https://checkip.amazonaws.com",   // AWS 官方，纯 IP
 		"https://api.ipify.org",           // 国际流行，纯 IP
 	}
