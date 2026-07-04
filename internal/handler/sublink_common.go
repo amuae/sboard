@@ -11,9 +11,26 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/sboard-go/sboard/internal/database"
 	"gopkg.in/yaml.v3"
 )
+
+// safeStringFromMap 安全地从 map 中提取字符串值，防止类型断言 panic
+func safeStringFromMap(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
+}
 
 // getEffectiveDnsResolve 获取最终的 IP 选择策略（仅控制使用 IPv4 还是 IPv6）
 // 优先使用用户的策略，如果用户设置为 "default"，则使用服务器的策略
@@ -37,6 +54,12 @@ type ServerWithNodes struct {
 func (s *Server) handleSubByUUID(c *gin.Context) {
 	// 从路径参数获取 UUID
 	userUUID := c.Param("uuid")
+
+	// 校验 UUID 格式
+	if _, err := uuid.Parse(userUUID); err != nil {
+		c.String(http.StatusBadRequest, "无效的 UUID 格式")
+		return
+	}
 
 	// 将其他参数转发到 handleSublink
 	c.Request.URL.RawQuery = "uuid=" + userUUID + "&" + c.Request.URL.RawQuery

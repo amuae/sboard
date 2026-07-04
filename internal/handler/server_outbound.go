@@ -304,10 +304,13 @@ func reorderOutboundSlots(serverID uint) {
 	var outbounds []database.ServerOutbound
 	database.GetDB().Where("server_id = ?", serverID).Order("slot ASC").Find(&outbounds)
 
+	// 批量更新，放在一个事务里
+	tx := database.GetDB().Begin()
 	for i, ob := range outbounds {
 		newSlot := i + 1
 		if ob.Slot != newSlot {
-			database.GetDB().Model(&ob).Update("slot", newSlot)
+			tx.Model(&ob).Update("slot", newSlot)
 		}
 	}
+	tx.Commit()
 }

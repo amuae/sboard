@@ -38,7 +38,10 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 			outbound := buildSingBoxOutbound(&swn.Server, &node, nc, user, lv, nil)
 			if outbound != nil {
 				nodeOutbounds = append(nodeOutbounds, outbound)
-				tag := outbound["tag"].(string)
+				tag := safeStringFromMap(outbound, "tag")
+				if tag == "" {
+					continue
+				}
 
 				// 使用 GeoIP 判断节点所属国家
 				nodeIP := getNodeEffectiveIP(&swn.Server, &node, nc)
@@ -68,7 +71,10 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				outboundProxy := buildSingBoxOutbound(&swn.Server, &node, nc, user, lv, customOpts)
 				if outboundProxy != nil {
 					nodeOutbounds = append(nodeOutbounds, outboundProxy)
-					tag := outboundProxy["tag"].(string)
+					tag := safeStringFromMap(outboundProxy, "tag")
+					if tag == "" {
+						continue
+					}
 					// 根据落地出站的 Host 判断国家分组
 					countryCode := getCountryCode(ob.Host)
 					if countryCode != "" {
@@ -89,7 +95,10 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 		outbound := buildSingBoxOutboundFromExternal(&ext)
 		if outbound != nil {
 			nodeOutbounds = append(nodeOutbounds, outbound)
-			tag := outbound["tag"].(string)
+			tag := safeStringFromMap(outbound, "tag")
+			if tag == "" {
+				continue
+			}
 			// 使用 Country 字段判断国家分组
 			if ext.Country != "" {
 				countryCode := strings.ToUpper(ext.Country)
@@ -231,8 +240,8 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				pattern, err := regexp.Compile(group.Filter)
 				if err == nil {
 					for _, nodeOutbound := range nodeOutbounds {
-						tag := nodeOutbound["tag"].(string)
-						if pattern.MatchString(tag) {
+						tag := safeStringFromMap(nodeOutbound, "tag")
+						if tag != "" && pattern.MatchString(tag) {
 							selectedTags = append(selectedTags, tag)
 						}
 					}
@@ -241,7 +250,10 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 		case "all":
 			// 所有节点
 			for _, nodeOutbound := range nodeOutbounds {
-				selectedTags = append(selectedTags, nodeOutbound["tag"].(string))
+				tag := safeStringFromMap(nodeOutbound, "tag")
+				if tag != "" {
+					selectedTags = append(selectedTags, tag)
+				}
 			}
 		default:
 			// 默认使用所有海外节点
