@@ -267,7 +267,14 @@ func (s *Server) handleSublink(c *gin.Context) {
 		content, err = generateMihomoSubscription(serversWithNodes, serverNodeConfigs, &user, lv, externalNodes)
 		contentType = "text/yaml; charset=utf-8"
 	case "singbox", "sing-box":
-		content, err = generateSingBoxSubscription(serversWithNodes, serverNodeConfigs, &user, lv, externalNodes)
+		// 构建订阅 URL（用于 provider）
+		scheme := "http"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		subURL := fmt.Sprintf("%s://%s/subscribe/%s?format=sing-box", scheme, c.Request.Host, userUUID)
+
+		content, err = generateSingBoxSubscription(serversWithNodes, serverNodeConfigs, &user, lv, externalNodes, subURL)
 		contentType = "application/json; charset=utf-8"
 	case "v2ray", "base64":
 		content, err = generateV2RaySubscription(serversWithNodes, serverNodeConfigs, &user, lv, externalNodes)

@@ -10,7 +10,7 @@ import (
 	"github.com/sboard-go/sboard/internal/database"
 )
 
-func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int, externalNodes []database.ExternalNode) (string, error) {
+func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int, externalNodes []database.ExternalNode, subURL string) (string, error) {
 	subscriptionConfig, err := GetEnabledSingBoxConfig()
 	if err != nil {
 		return "", fmt.Errorf("获取 SingBox 配置失败: %v", err)
@@ -394,25 +394,6 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 			services = append(services, service)
 		}
 		config["services"] = services
-	}
-
-	// Providers (注入订阅链接)
-	if len(tpl.Providers) > 0 {
-		var providers []map[string]interface{}
-		for _, p := range tpl.Providers {
-			provider := map[string]interface{}{
-				"tag":    p.Tag,
-				"type":   p.Type,
-				"path":   p.Path,
-				"http_client": p.HttpClient,
-				"update_interval": p.UpdateInterval,
-			}
-			if p.URL != "" {
-				provider["url"] = p.URL
-			}
-			providers = append(providers, provider)
-		}
-		config["providers"] = providers
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
