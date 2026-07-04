@@ -1732,16 +1732,24 @@ interface SingBoxConfig {
       disabled: boolean
       level: string
       output: string
+      timestamp: boolean
     }
     dns: {
-      servers: Array<{ tag: string; type: string; server: string; serverPort: number; detour: string; domainResolver: string; inet4Range: string; inet6Range: string; predefined?: Record<string, string[]> }>
+      servers: Array<{ tag: string; type: string; server: string; serverPort: number; detour: string; domainResolver: string; inet4Range: string; inet6Range: string; predefined?: Record<string, string[]>; servers?: string[] }>
       strategy: string
       final: string
       clientSubnet: string
       optimistic: boolean
       reverseMapping: boolean
       disableCache: boolean
+      cacheCapacity: number
       rules: Array<{ type: string; value: string; values?: string[]; server: string; action: string; rewriteTtl: boolean }>
+    }
+    ntp: {
+      enabled: boolean
+      interval: string
+      server: string
+      serverPort: number
     }
     inbound: {
       tunEnable: boolean
@@ -1754,25 +1762,31 @@ interface SingBoxConfig {
       autoRedirect: boolean
       strictRoute: boolean
     }
-    outboundGroups: Array<{ tag: string; type: string; filterMode: string; filter: string; url: string; interval: string }>
+    outboundGroups: Array<{ tag: string; type: string; filterMode: string; filter: string; include: string; url: string; interval: string }>
     route: {
       final: string
       defaultDomainResolver: string
-      autoDetectInterface: boolean
-      defaultMark: number
       defaultHttpClient: string
-      rules: Array<{ type: string; value: string; values?: string[]; action?: string; outbound: string; mode?: string; subRules?: Array<{ type: string; value: string }> }>
-      ruleSets: Array<{ tag: string; type: string; format: string; url: string }>
+      autoDetectInterface: boolean
+      findProcess: boolean
+      defaultMark: number
+      rules: Array<{ type: string; value: string; values?: string[]; action?: string; outbound: string; mode?: string; matchOnly?: boolean; subRules?: Array<{ type: string; value: string }> }>
+      ruleSets: Array<{ tag: string; type: string; format: string; url: string; path?: string }>
     }
     experimental: {
       cacheFileEnabled: boolean
       storeFakeip: boolean
-      storeDns: boolean
+      storeRdrc: boolean
       externalController: string
       externalUi: string
       externalUiDownloadUrl: string
+      externalUiHttpClient: string
+      defaultMode: string
+      urltestUnifiedDelay: boolean
     }
-    httpClients: Array<{ tag: string }>
+    httpClients: Array<{ tag: string; version: number; headers?: Record<string, string>; detour?: string }>
+    services: Array<{ type: string; listen: string; listenPort: number }>
+    providers: Array<{ type: string; tag: string; url: string; path: string; httpClient: string; updateInterval: string }>
   }
 }
 
@@ -1934,104 +1948,123 @@ const getDefaultMihomoConfig = (): MihomoConfig => ({
   }
 })
 
-// 默认 SingBox 配置 (与 sublink.go 保持一致)
+// 默认 SingBox 配置 (与 sublink.go 保持一致，兼容 sing-box 1.14)
 const getDefaultSingBoxConfig = (): SingBoxConfig => ({
   id: 0,
   name: '',
   description: '',
   enabled: false,
-  modules: ['Log', 'DNS', 'Inbound', 'Outbound', 'Route', 'Experimental'],
+  modules: ['Log', 'DNS', 'Inbound', 'Outbound', 'Route', 'Experimental', 'NTP', 'HttpClients', 'Services'],
   config: {
     log: {
-      disabled: true,
-      level: 'info',
+      disabled: false,
+      level: 'warn',
       output: 'sing-box.log',
+      timestamp: true,
     },
     dns: {
       servers: [
-        { tag: 'static_hosts', type: 'hosts', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '', inet6Range: '', predefined: { 'dns.alidns.com': ['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'], 'dns.google': ['8.8.8.8', '8.8.4.4', '2001:4860:4860::8888', '2001:4860:4860::8844'] } },
-        { tag: 'ali', type: 'https', server: 'dns.alidns.com', serverPort: 443, detour: '', domainResolver: 'static_hosts', inet4Range: '', inet6Range: '' },
-        { tag: 'google', type: 'https', server: 'dns.google', serverPort: 443, detour: '国外', domainResolver: 'static_hosts', inet4Range: '', inet6Range: '' },
-        { tag: 'fakeip', type: 'fakeip', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '198.18.0.0/15', inet6Range: 'fc00::/18' }
+        { tag: 'dns-hosts', type: 'hosts', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '', inet6Range: '', predefined: { 'dns.alidns.com': ['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'], 'dns.google': ['8.8.8.8', '8.8.4.4', '2001:4860:4860::8888', '2001:4860:4860::8844'] } },
+        { tag: 'bootstrap', type: 'udp', server: '223.5.5.5', serverPort: 0, detour: '国内流量', domainResolver: 'dns-hosts', inet4Range: '', inet6Range: '' },
+        { tag: 'aliyun', type: 'quic', server: 'dns.alidns.com', serverPort: 0, detour: '国内流量', domainResolver: 'dns-hosts', inet4Range: '', inet6Range: '' },
+        { tag: 'cloudflare', type: 'https', server: 'cloudflare-dns.com', serverPort: 0, detour: '国外流量', domainResolver: 'dns-hosts', inet4Range: '', inet6Range: '' },
+        { tag: 'google', type: 'https', server: 'dns.google', serverPort: 0, detour: '国外流量', domainResolver: 'dns-hosts', inet4Range: '', inet6Range: '' },
+        { tag: 'CN DNS', type: 'group', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '', inet6Range: '', servers: ['aliyun', 'bootstrap'] },
+        { tag: 'PROXY DNS', type: 'group', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '', inet6Range: '', servers: ['cloudflare', 'google'] },
+        { tag: 'fakeip-resolver', type: 'fakeip', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '198.18.0.0/15', inet6Range: '' },
       ],
       strategy: 'prefer_ipv4',
-      final: 'google',
-      clientSubnet: '223.5.5.0/24',
+      final: 'PROXY DNS',
+      clientSubnet: '',
       optimistic: true,
-      reverseMapping: true,
+      reverseMapping: false,
       disableCache: false,
+      cacheCapacity: 8192,
       rules: [
-        { type: 'clash_mode', value: 'direct', values: [], server: 'ali', action: '', rewriteTtl: false },
-        { type: 'clash_mode', value: 'global', values: [], server: 'fakeip', action: '', rewriteTtl: false },
-        { type: 'rule_set', value: '', values: ['httpdns'], server: '', action: 'predefined', rewriteTtl: false },
-        { type: 'query_type', value: 'A,AAAA', values: [], server: 'fakeip', action: '', rewriteTtl: true },
-        { type: 'rule_set', value: '', values: ['google'], server: 'google', action: '', rewriteTtl: false },
-        { type: 'rule_set', value: '', values: ['cn'], server: 'ali', action: '', rewriteTtl: false }
+        { type: 'clash_mode', value: 'direct', values: [], server: 'CN DNS', action: '', rewriteTtl: false },
+        { type: 'clash_mode', value: 'global', values: [], server: 'PROXY DNS', action: '', rewriteTtl: false },
+        { type: 'rule_set', value: '', values: ['cn_domain', 'private_domain'], server: 'CN DNS', action: '', rewriteTtl: false },
+        { type: 'query_type', value: 'A,AAAA', values: [], server: 'fakeip-resolver', action: '', rewriteTtl: true },
       ]
+    },
+    ntp: {
+      enabled: true,
+      interval: '1h0m0s',
+      server: 'ntp.aliyun.com',
+      serverPort: 123,
     },
     inbound: {
       tunEnable: true,
       interfaceName: 'sing',
-      stack: 'system',
+      stack: 'mixed',
       mtu: 9000,
       addressIpv4: '172.18.0.1/30',
       addressIpv6: 'fdfe:dcba:9876::1/126',
       autoRoute: true,
-      autoRedirect: false,
+      autoRedirect: true,
       strictRoute: true
     },
     outboundGroups: [
-      { tag: '国外', type: 'selector', filterMode: 'geoip-cn', filter: '!cn', url: '', interval: '' },
-      { tag: '国内', type: 'selector', filterMode: 'geoip-cn', filter: 'cn', url: '', interval: '' },
-      { tag: 'AI', type: 'selector', filterMode: 'geoip-country', filter: 'US,JP,SG,KR,TW,GB,DE', url: '', interval: '' },
-      { tag: 'wificall', type: 'selector', filterMode: 'geoip-country', filter: 'US,GB,DE', url: '', interval: '' }
+      { tag: '国外流量', type: 'selector', filterMode: '', filter: '', include: '(?i)-', url: '', interval: '' },
+      { tag: '国内流量', type: 'selector', filterMode: 'geoip-cn', filter: 'cn', include: '', url: '', interval: '' },
+      { tag: 'AI 服务', type: 'selector', filterMode: 'geoip-country', filter: 'US,JP,SG,KR,TW,GB,DE', include: '(?i)-', url: '', interval: '' },
+      { tag: 'wificall', type: 'selector', filterMode: 'geoip-country', filter: 'US,GB,DE', include: '(?i)-', url: '', interval: '' },
     ],
     route: {
-      final: '国外',
-      defaultDomainResolver: 'ali',
+      final: '国外流量',
+      defaultDomainResolver: 'CN DNS',
+      defaultHttpClient: 'sources_downloader',
       autoDetectInterface: true,
+      findProcess: true,
       defaultMark: 255,
-      defaultHttpClient: 'system_client',
       rules: [
-        { type: 'protocol', value: '', values: [], action: 'sniff', outbound: '', mode: '', subRules: [] },
-        { type: 'protocol', value: 'dns', values: [], action: 'hijack-dns', outbound: '', mode: '', subRules: [] },
-        { type: 'rule_set', value: '', values: ['httpdns'], action: 'reject', outbound: '', mode: '', subRules: [] },
-        { type: 'clash_mode', value: 'direct', values: [], action: '', outbound: '直连', mode: '', subRules: [] },
-        { type: 'clash_mode', value: 'global', values: [], action: '', outbound: '国外', mode: '', subRules: [] },
-        { type: 'logical', value: '', values: [], action: '', outbound: 'wificall', mode: 'or', subRules: [
-          { type: 'domain_suffix', value: 'ls.apple.com,push.apple.com,3gppnetwork.org' },
-          { type: 'port', value: '500,4500' }
+        { type: 'logical', value: '', values: [], action: 'hijack-dns', outbound: '', mode: 'or', subRules: [
+          { type: 'protocol', value: 'dns' },
+          { type: 'port', value: '53' }
         ]},
-        { type: 'logical', value: '', values: [], action: 'reject', outbound: '', mode: 'or', subRules: [
-          { type: 'domain_keyword', value: 'stun' }
-        ]},
-        { type: 'rule_set', value: '', values: ['google'], action: '', outbound: '国外', mode: '', subRules: [] },
-        { type: 'rule_set', value: '', values: ['AI'], action: '', outbound: 'AI', mode: '', subRules: [] },
-        { type: 'rule_set', value: '', values: ['cn'], action: '', outbound: '国内', mode: '', subRules: [] },
-        { type: 'protocol', value: '', values: [], action: 'resolve', outbound: '', mode: '', subRules: [] },
-        { type: 'rule_set', value: '', values: ['cnip'], action: '', outbound: '国内', mode: '', subRules: [] },
-        { type: 'ip_is_private', value: '', values: [], action: '', outbound: '直连', mode: '', subRules: [] }
+        { type: 'clash_mode', value: 'direct', values: [], action: '', outbound: 'DIRECT', mode: '', subRules: [] },
+        { type: 'clash_mode', value: 'global', values: [], action: '', outbound: '国外流量', mode: '', subRules: [] },
+        { type: 'domain_suffix', value: 'ls.apple.com,3gppnetwork.org', values: [], action: '', outbound: 'wificall', mode: '', subRules: [] },
+        { type: 'port', value: '500,4500', values: [], action: '', outbound: 'wificall', mode: '', subRules: [] },
+        { type: 'rule_set', value: '', values: ['AI'], action: '', outbound: 'AI 服务', mode: '', subRules: [] },
+        { type: 'rule_set', value: '', values: ['google_domain', 'geolocation-!cn'], action: '', outbound: '国外流量', mode: '', subRules: [] },
+        { type: 'rule_set', value: '', values: ['cn_domain'], action: '', outbound: '国内流量', mode: '', subRules: [] },
+        { type: '', value: '', values: [], action: 'resolve', outbound: '', mode: '', matchOnly: true, subRules: [] },
+        { type: 'rule_set', value: '', values: ['google_ip'], action: '', outbound: '国外流量', mode: '', subRules: [] },
+        { type: 'rule_set', value: '', values: ['cn_ip'], action: '', outbound: '国内流量', mode: '', subRules: [] },
+        { type: 'ip_is_private', value: '', values: [], action: '', outbound: 'DIRECT', mode: '', subRules: [] },
       ],
       ruleSets: [
-        { tag: 'cn', type: 'remote', format: 'binary', url: 'https://ghfast.top/https://raw.githubusercontent.com/QuixoticHeart/rule-set/refs/heads/ruleset/singbox/version4/cn.srs' },
-        { tag: 'cnip', type: 'remote', format: 'binary', url: 'https://ghfast.top/https://raw.githubusercontent.com/QuixoticHeart/rule-set/refs/heads/ruleset/singbox/version4/cncidr.srs' },
-        { tag: 'google', type: 'remote', format: 'binary', url: 'https://ghfast.top/https://raw.githubusercontent.com/QuixoticHeart/rule-set/refs/heads/ruleset/singbox/version4/google.srs' },
-        { tag: 'AI', type: 'remote', format: 'binary', url: 'https://ghfast.top/https://raw.githubusercontent.com/QuixoticHeart/rule-set/refs/heads/ruleset/singbox/version4/ai.srs' },
-        { tag: 'httpdns', type: 'remote', format: 'binary', url: 'https://ghfast.top/https://raw.githubusercontent.com/QuixoticHeart/rule-set/refs/heads/ruleset/singbox/version4/httpdns.srs' },
-        { tag: 'fake-ip-filter', type: 'remote', format: 'source', url: 'https://ghfast.top/https://raw.githubusercontent.com/qichiyuhub/rule/refs/heads/main/fakeipfilter.json' },
-
+        { tag: 'private_domain', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geosite/private.srs' },
+        { tag: 'cn_domain', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geosite/cn.srs' },
+        { tag: 'google_domain', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geosite/google.srs' },
+        { tag: 'geolocation-!cn', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geosite/geolocation-!cn.srs' },
+        { tag: 'AI', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/sing-box-ruleset/ai.srs' },
+        { tag: 'private_ip', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geoip/private.srs' },
+        { tag: 'cn_ip', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geoip/cn.srs' },
+        { tag: 'google_ip', type: 'remote', format: '', url: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geoip/google.srs' },
       ]
     },
     experimental: {
       cacheFileEnabled: true,
-      storeFakeip: true,
-      storeDns: true,
+      storeFakeip: false,
+      storeRdrc: true,
       externalController: '0.0.0.0:9090',
-      externalUi: 'ui',
-      externalUiDownloadUrl: 'https://ghfast.top/https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip'
+      externalUi: 'dashboard',
+      externalUiDownloadUrl: 'https://ghfast.top/https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip',
+      externalUiHttpClient: 'sources_downloader',
+      defaultMode: 'rule',
+      urltestUnifiedDelay: true,
     },
     httpClients: [
-      { tag: 'system_client' }
+      { tag: 'proxy_downloader', version: 2, headers: { 'User-Agent': 'sing-box/1.14' }, detour: '国外流量' },
+      { tag: 'sources_downloader', version: 2, headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 16; Pixel 10 Pro Build/UPB5.240623.009) AppleWebKit/537.36' }, detour: '国外流量' },
+    ],
+    services: [
+      { type: 'api', listen: '127.0.0.1', listenPort: 9091 }
+    ],
+    providers: [
+      { type: 'remote', tag: '自建', url: '', path: './proxy_provider/custom.json', httpClient: 'proxy_downloader', updateInterval: '24h0m0s' }
     ]
   }
 })
