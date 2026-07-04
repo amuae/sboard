@@ -11,30 +11,31 @@ import (
 )
 
 func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint]map[uint]*database.ServerNodeConfig, user *database.ProxyUser, lv int, externalNodes []database.ExternalNode) (string, error) {
-	// 获取用户配置的 SingBox 订阅模板
 	subscriptionConfig, err := GetEnabledSingBoxConfig()
 	if err != nil {
 		return "", fmt.Errorf("获取 SingBox 配置失败: %v", err)
 	}
+	if subscriptionConfig == nil {
+		return "", fmt.Errorf("未发现 SingBox 订阅配置，请先在后台配置并启用")
+	}
 
+	tpl := subscriptionConfig.Config
+
+	// 收集 node outbounds 和分类标签
 	var nodeOutbounds []SingBoxOutbound
-	// 按 GeoIP 国家分类的节点标签
-	countryProxyTags := make(map[string][]string) // 国家代码 -> 节点标签列表
-	var domesticProxyTags []string                // 国内节点（geoip-cn）
-	var overseasProxyTags []string                // 非国内节点
+	countryProxyTags := make(map[string][]string)
+	var domesticProxyTags []string
+	var overseasProxyTags []string
 
 	for _, swn := range servers {
 		for _, node := range swn.Nodes {
 			if !node.Enabled {
 				continue
 			}
-
 			var nc *database.ServerNodeConfig
 			if serverConfigs, ok := nodeConfigs[swn.Server.ID]; ok {
 				nc = serverConfigs[node.ID]
 			}
-
-			// 生成直连节点（使用主 UUID）
 			outbound := buildSingBoxOutbound(&swn.Server, &node, nc, user, lv, nil)
 			if outbound != nil {
 				nodeOutbounds = append(nodeOutbounds, outbound)
@@ -42,23 +43,17 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				if tag == "" {
 					continue
 				}
-
-				// 使用 GeoIP 判断节点所属国家
 				nodeIP := getNodeEffectiveIP(&swn.Server, &node, nc)
 				countryCode := getCountryCode(nodeIP)
-
 				if countryCode != "" {
 					countryProxyTags[countryCode] = append(countryProxyTags[countryCode], tag)
 				}
-
 				if isDomesticByIP(nodeIP) {
 					domesticProxyTags = append(domesticProxyTags, tag)
 				} else {
 					overseasProxyTags = append(overseasProxyTags, tag)
 				}
 			}
-
-			// 生成落地出站节点（使用额外 UUID）
 			for _, ob := range swn.Outbounds {
 				extraUUID := user.GetExtraUUID(ob.Slot)
 				if extraUUID == "" {
@@ -75,7 +70,6 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 					if tag == "" {
 						continue
 					}
-					// 根据落地出站的 Host 判断国家分组
 					countryCode := getCountryCode(ob.Host)
 					if countryCode != "" {
 						countryProxyTags[countryCode] = append(countryProxyTags[countryCode], tag)
@@ -89,8 +83,6 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 			}
 		}
 	}
-
-	// 添加外部节点
 	for _, ext := range externalNodes {
 		outbound := buildSingBoxOutboundFromExternal(&ext)
 		if outbound != nil {
@@ -99,7 +91,6 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 			if tag == "" {
 				continue
 			}
-			// 使用 Country 字段判断国家分组
 			if ext.Country != "" {
 				countryCode := strings.ToUpper(ext.Country)
 				countryProxyTags[countryCode] = append(countryProxyTags[countryCode], tag)
@@ -108,77 +99,97 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 		}
 	}
 
-	// 使用配置模板构建完整配置
 	config := make(map[string]interface{})
 
-	// 如果没有找到启用的配置，返回错误
-	if subscriptionConfig == nil {
-		return "", fmt.Errorf("未发现 SingBox 订阅配置，请先在后台配置并启用")
-	}
-
-	tpl := subscriptionConfig.Config
-
-	// Log 配置
+	// Log
 	config["log"] = map[string]interface{}{
-		"disabled": tpl.Log.Disabled,
-	}
-	if tpl.Log.Level != "" {
-		config["log"].(map[string]interface{})["level"] = tpl.Log.Level
-	}
-
-	// DNS 配置
-	dnsConfig := map[string]interface{}{
-		"strategy":        tpl.DNS.Strategy,
-		"reverse_mapping": tpl.DNS.ReverseMapping,
-	}
-	if tpl.DNS.Final != "" {
-		dnsConfig["final"] = tpl.DNS.Final
-	}
-	if tpl.DNS.ClientSubnet != "" {
-		dnsConfig["client_subnet"] = tpl.DNS.ClientSubnet
-	}
-	if tpl.DNS.DisableCache {
-		dnsConfig["disable_cache"] = true
+		"disabled":  tpl.Log.Disabled,
+		"level":     tpl.Log.Level,
+		"output":    tpl.Log.Output,
+		"timestamp": tpl.Log.Timestamp,
 	}
 
-	// DNS servers
-	var dnsServers []map[string]interface{}
-	for _, srv := range tpl.DNS.Servers {
-		server := map[string]interface{}{
-			"tag":  srv.Tag,
-			"type": srv.Type,
+	// DNS
+	{
+		dnsConfig := map[string]interface{}{
+			"strategy":        tpl.DNS.Strategy,
+			"reverse_mapping": tpl.DNS.ReverseMapping,
+			"optimistic":      tpl.DNS.Optimistic,
 		}
-		if srv.Type == "fakeip" {
-			// fakeip 类型使用 inet4_range 和 inet6_range
-			server["inet4_range"] = "198.18.0.0/15"
-			server["inet6_range"] = "fc00::/18"
-		} else {
-			if srv.Server != "" {
-				server["server"] = srv.Server
+		if tpl.DNS.Final != "" {
+			dnsConfig["final"] = tpl.DNS.Final
+		}
+		if tpl.DNS.ClientSubnet != "" {
+			dnsConfig["client_subnet"] = tpl.DNS.ClientSubnet
+		}
+		if tpl.DNS.DisableCache {
+			dnsConfig["disable_cache"] = true
+		}
+		if tpl.DNS.CacheCapacity > 0 {
+			dnsConfig["cache_capacity"] = tpl.DNS.CacheCapacity
+		}
+
+		var dnsServers []map[string]interface{}
+		for _, srv := range tpl.DNS.Servers {
+			server := map[string]interface{}{
+				"tag":  srv.Tag,
+				"type": srv.Type,
 			}
-			if srv.Detour != "" {
-				server["detour"] = srv.Detour
+			switch srv.Type {
+			case "fakeip":
+				if srv.Inet4Range != "" {
+					server["inet4_range"] = srv.Inet4Range
+				}
+				if srv.Inet6Range != "" {
+					server["inet6_range"] = srv.Inet6Range
+				}
+			case "group":
+				server["servers"] = srv.Servers
+			case "hosts":
+				if srv.Predefined != nil {
+					server["predefined"] = srv.Predefined
+				}
+				fallthrough
+			default:
+				if srv.Server != "" {
+					server["server"] = srv.Server
+				}
+				if srv.ServerPort > 0 {
+					server["server_port"] = srv.ServerPort
+				}
+				if srv.Detour != "" {
+					server["detour"] = srv.Detour
+				}
+				if srv.DomainResolver != "" {
+					server["domain_resolver"] = srv.DomainResolver
+				}
 			}
-			if srv.DomainResolver != "" {
-				server["domain_resolver"] = srv.DomainResolver
+			dnsServers = append(dnsServers, server)
+		}
+		dnsConfig["servers"] = dnsServers
+
+		var dnsRules []map[string]interface{}
+		for _, rule := range tpl.DNS.Rules {
+			dnsRule := buildSingBoxDNSRule(rule)
+			if dnsRule != nil {
+				dnsRules = append(dnsRules, dnsRule)
 			}
 		}
-		dnsServers = append(dnsServers, server)
+		dnsConfig["rules"] = dnsRules
+		config["dns"] = dnsConfig
 	}
-	dnsConfig["servers"] = dnsServers
 
-	// DNS rules
-	var dnsRules []map[string]interface{}
-	for _, rule := range tpl.DNS.Rules {
-		dnsRule := buildSingBoxDNSRule(rule)
-		if dnsRule != nil {
-			dnsRules = append(dnsRules, dnsRule)
+	// NTP
+	if tpl.NTP.Enabled {
+		config["ntp"] = map[string]interface{}{
+			"enabled":     true,
+			"interval":    tpl.NTP.Interval,
+			"server":      tpl.NTP.Server,
+			"server_port": tpl.NTP.ServerPort,
 		}
 	}
-	dnsConfig["rules"] = dnsRules
-	config["dns"] = dnsConfig
 
-	// Inbound 配置
+	// Inbound (TUN)
 	if tpl.Inbound.TunEnable {
 		addresses := []string{}
 		if tpl.Inbound.AddressIPv4 != "" {
@@ -187,46 +198,40 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 		if tpl.Inbound.AddressIPv6 != "" {
 			addresses = append(addresses, tpl.Inbound.AddressIPv6)
 		}
-		inbound := map[string]interface{}{
-			"tag":            "tun-in",
+		config["inbounds"] = []map[string]interface{}{{
 			"type":           "tun",
-			"address":        addresses,
-			"mtu":            tpl.Inbound.MTU,
+			"tag":            "tun-in",
 			"interface_name": tpl.Inbound.InterfaceName,
+			"mtu":            tpl.Inbound.MTU,
+			"address":        addresses,
 			"stack":          tpl.Inbound.Stack,
 			"auto_route":     tpl.Inbound.AutoRoute,
 			"auto_redirect":  tpl.Inbound.AutoRedirect,
 			"strict_route":   tpl.Inbound.StrictRoute,
-		}
-		config["inbounds"] = []map[string]interface{}{inbound}
+		}}
 	}
 
-	// Outbound 配置
+	// Outbounds
 	outbounds := []map[string]interface{}{
-		{"type": "direct", "tag": "直连"},
+		{"type": "direct", "tag": "DIRECT"},
 	}
-
-	// 根据配置的策略组构建 outbounds
 	for _, group := range tpl.OutboundGroups {
 		outbound := map[string]interface{}{
 			"type": group.Type,
 			"tag":  group.Tag,
 		}
-
-		// 根据过滤模式选择节点
 		var selectedTags []string
 		switch group.FilterMode {
 		case "geoip-cn":
-			// 国内/非国内过滤
 			switch group.Filter {
 			case "cn":
-				// 国内分组必须包含直连选项
-				selectedTags = append([]string{"直连"}, domesticProxyTags...)
+				selectedTags = append([]string{"DIRECT"}, domesticProxyTags...)
 			case "!cn":
+				selectedTags = overseasProxyTags
+			default:
 				selectedTags = overseasProxyTags
 			}
 		case "geoip-country":
-			// 按国家过滤
 			countries := strings.Split(group.Filter, ",")
 			for _, country := range countries {
 				country = strings.TrimSpace(strings.ToUpper(country))
@@ -235,7 +240,6 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				}
 			}
 		case "regex":
-			// 正则过滤
 			if group.Filter != "" {
 				pattern, err := regexp.Compile(group.Filter)
 				if err == nil {
@@ -248,7 +252,6 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				}
 			}
 		case "all":
-			// 所有节点
 			for _, nodeOutbound := range nodeOutbounds {
 				tag := safeStringFromMap(nodeOutbound, "tag")
 				if tag != "" {
@@ -256,15 +259,28 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				}
 			}
 		default:
-			// 默认使用所有海外节点
-			selectedTags = overseasProxyTags
+			if group.Include != "" {
+				// selector 模式：使用 include 正则匹配所有节点
+				for _, nodeOutbound := range nodeOutbounds {
+					tag := safeStringFromMap(nodeOutbound, "tag")
+					if tag != "" {
+						selectedTags = append(selectedTags, tag)
+					}
+				}
+				if group.Include != "(?i)-" {
+					outbound["include"] = group.Include
+				}
+			} else {
+				selectedTags = overseasProxyTags
+			}
 		}
-
 		if len(selectedTags) > 0 {
-			outbound["outbounds"] = selectedTags
+			if group.Type == "direct" {
+				// direct 类型不需要 outbounds 列表
+			} else {
+				outbound["outbounds"] = selectedTags
+			}
 		}
-
-		// URL-test 类型需要额外参数
 		if group.Type == "urltest" {
 			if group.URL != "" {
 				outbound["url"] = group.URL
@@ -273,60 +289,130 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				outbound["interval"] = group.Interval
 			}
 		}
-
 		outbounds = append(outbounds, outbound)
 	}
-
-	// 添加所有节点 outbound
 	for _, nodeOutbound := range nodeOutbounds {
 		outbounds = append(outbounds, nodeOutbound)
 	}
 	config["outbounds"] = outbounds
 
-	// Route 配置
-	routeConfig := map[string]interface{}{
-		"final":                   tpl.Route.Final,
-		"auto_detect_interface":   tpl.Route.AutoDetectInterface,
-		"default_domain_resolver": tpl.Route.DefaultDomainResolver,
+	// Route
+	{
+		routeConfig := map[string]interface{}{
+			"final":                   tpl.Route.Final,
+			"auto_detect_interface":   tpl.Route.AutoDetectInterface,
+			"default_domain_resolver": tpl.Route.DefaultDomainResolver,
+		}
+		if tpl.Route.FindProcess {
+			routeConfig["find_process"] = true
+		}
+		if tpl.Route.DefaultHttpClient != "" {
+			routeConfig["default_http_client"] = tpl.Route.DefaultHttpClient
+		}
+
+		var routeRules []map[string]interface{}
+		for _, rule := range tpl.Route.Rules {
+			routeRule := buildSingBoxRouteRule(rule)
+			if routeRule != nil {
+				routeRules = append(routeRules, routeRule)
+			}
+		}
+		routeConfig["rules"] = routeRules
+
+		var ruleSets []map[string]interface{}
+		for _, rs := range tpl.Route.RuleSets {
+			ruleSet := map[string]interface{}{
+				"tag":  rs.Tag,
+				"type": rs.Type,
+			}
+			if rs.Path != "" {
+				ruleSet["path"] = rs.Path
+			}
+			if rs.URL != "" {
+				ruleSet["url"] = rs.URL
+			}
+			ruleSets = append(ruleSets, ruleSet)
+		}
+		routeConfig["rule_set"] = ruleSets
+		config["route"] = routeConfig
 	}
 
-	// Route rules
-	var routeRules []map[string]interface{}
-	for _, rule := range tpl.Route.Rules {
-		routeRule := buildSingBoxRouteRule(rule)
-		if routeRule != nil {
-			routeRules = append(routeRules, routeRule)
-		}
-	}
-	routeConfig["rules"] = routeRules
-
-	// Rule sets
-	var ruleSets []map[string]interface{}
-	for _, rs := range tpl.Route.RuleSets {
-		ruleSet := map[string]interface{}{
-			"tag":  rs.Tag,
-			"type": rs.Type,
-			"url":  rs.URL,
-		}
-		if rs.Format != "" {
-			ruleSet["format"] = rs.Format
-		}
-		ruleSets = append(ruleSets, ruleSet)
-	}
-	routeConfig["rule_set"] = ruleSets
-	config["route"] = routeConfig
-
-	// Experimental 配置
-	config["experimental"] = map[string]interface{}{
+	// Experimental
+	expConfig := map[string]interface{}{
 		"cache_file": map[string]interface{}{
 			"enabled":      tpl.Experimental.CacheFileEnabled,
 			"store_fakeip": tpl.Experimental.StoreFakeip,
+			"store_rdrc":   tpl.Experimental.StoreRdrc,
 		},
 		"clash_api": map[string]interface{}{
-			"external_controller":      tpl.Experimental.ExternalController,
-			"external_ui":              tpl.Experimental.ExternalUi,
-			"external_ui_download_url": tpl.Experimental.ExternalUiDownloadUrl,
+			"external_controller": tpl.Experimental.ExternalController,
+			"external_ui":         tpl.Experimental.ExternalUi,
 		},
+	}
+	if tpl.Experimental.ExternalUiDownloadUrl != "" {
+		expConfig["clash_api"].(map[string]interface{})["external_ui_download_url"] = tpl.Experimental.ExternalUiDownloadUrl
+	}
+	if tpl.Experimental.ExternalUiHttpClient != "" {
+		expConfig["clash_api"].(map[string]interface{})["external_ui_http_client"] = tpl.Experimental.ExternalUiHttpClient
+	}
+	if tpl.Experimental.DefaultMode != "" {
+		expConfig["clash_api"].(map[string]interface{})["default_mode"] = tpl.Experimental.DefaultMode
+	}
+	if tpl.Experimental.UrlTestUnifiedDelay {
+		expConfig["urltest_unified_delay"] = true
+	}
+	config["experimental"] = expConfig
+
+	// HTTP Clients
+	if len(tpl.HttpClients) > 0 {
+		var httpClients []map[string]interface{}
+		for _, hc := range tpl.HttpClients {
+			client := map[string]interface{}{
+				"tag":     hc.Tag,
+				"version": hc.Version,
+			}
+			if len(hc.Headers) > 0 {
+				client["headers"] = hc.Headers
+			}
+			if hc.Detour != "" {
+				client["detour"] = hc.Detour
+			}
+			httpClients = append(httpClients, client)
+		}
+		config["http_clients"] = httpClients
+	}
+
+	// Services
+	if len(tpl.Services) > 0 {
+		var services []map[string]interface{}
+		for _, svc := range tpl.Services {
+			service := map[string]interface{}{
+				"type":        svc.Type,
+				"listen":      svc.Listen,
+				"listen_port": svc.ListenPort,
+			}
+			services = append(services, service)
+		}
+		config["services"] = services
+	}
+
+	// Providers (注入订阅链接)
+	if len(tpl.Providers) > 0 {
+		var providers []map[string]interface{}
+		for _, p := range tpl.Providers {
+			provider := map[string]interface{}{
+				"tag":    p.Tag,
+				"type":   p.Type,
+				"path":   p.Path,
+				"http_client": p.HttpClient,
+				"update_interval": p.UpdateInterval,
+			}
+			if p.URL != "" {
+				provider["url"] = p.URL
+			}
+			providers = append(providers, provider)
+		}
+		config["providers"] = providers
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
@@ -336,14 +422,10 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 	return string(data), nil
 }
 
-// buildSingBoxDNSRule 构建 SingBox DNS 规则（sing-box 1.14 显式 action）
+// buildSingBoxDNSRule 构建 SingBox DNS 规则（1.14）
 func buildSingBoxDNSRule(rule SingBoxDNSRule) map[string]interface{} {
 	result := map[string]interface{}{}
-
-	// sing-box 1.14: DNS 规则需要显式 action
-	// route → server（默认行为）, respond → 直接响应, evaluate → 评估
 	if rule.Action == "" && rule.Server != "" {
-		// 有 server 字段时默认 action=route
 		result["action"] = "route"
 	} else if rule.Action != "" {
 		result["action"] = rule.Action
@@ -351,7 +433,6 @@ func buildSingBoxDNSRule(rule SingBoxDNSRule) map[string]interface{} {
 	if rule.Server != "" {
 		result["server"] = rule.Server
 	}
-
 	switch rule.Type {
 	case "clash_mode":
 		result["clash_mode"] = rule.Value
@@ -387,25 +468,23 @@ func buildSingBoxDNSRule(rule SingBoxDNSRule) map[string]interface{} {
 			result[rule.Type] = rule.Value
 		}
 	}
-
 	return result
 }
 
-// buildSingBoxRouteRule 构建 SingBox 路由规则（sing-box 1.14 显式 action）
+// buildSingBoxRouteRule 构建 SingBox 路由规则（1.14）
 func buildSingBoxRouteRule(rule SingBoxRouteRule) map[string]interface{} {
 	result := make(map[string]interface{})
 
-	// sing-box 1.14: 路由规则使用显式 action 替代直接 outbound 字段
-	// route → 携带 outbound 参数（默认行为）
-	// direct → 直连, reject → 拒绝, hijack_dns → DNS 劫持, resolve → 解析 DNS
 	if rule.Action != "" {
 		result["action"] = rule.Action
 	} else if rule.Outbound != "" {
-		// 有 outbound 未设 action 时默认为 route
 		result["action"] = "route"
 	}
 	if rule.Outbound != "" {
 		result["outbound"] = rule.Outbound
+	}
+	if rule.Action == "resolve" && rule.MatchOnly {
+		result["match_only"] = true
 	}
 
 	switch rule.Type {
@@ -473,14 +552,12 @@ func buildSingBoxRouteRule(rule SingBoxRouteRule) map[string]interface{} {
 			result[rule.Type] = rule.Value
 		}
 	}
-
 	return result
 }
 
 // buildSingBoxSubRule 构建 SingBox 子规则
 func buildSingBoxSubRule(rule SingBoxSubRule) map[string]interface{} {
 	result := make(map[string]interface{})
-
 	switch rule.Type {
 	case "domain_suffix":
 		suffixes := strings.Split(rule.Value, ",")
@@ -510,12 +587,13 @@ func buildSingBoxSubRule(rule SingBoxSubRule) map[string]interface{} {
 			}
 		}
 		result["port"] = portInts
+	case "protocol":
+		result["protocol"] = rule.Value
 	default:
 		if rule.Value != "" {
 			result[rule.Type] = rule.Value
 		}
 	}
-
 	return result
 }
 
@@ -560,7 +638,6 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 		if node.TransportEnabled && node.TransportType != "" && node.TransportType != "tcp" {
 			outbound["transport"] = buildSingBoxTransport(node)
 		}
-		// Trojan 协议必须有 TLS（根据 Sub-Store 参考实现）
 		outbound["tls"] = buildSingBoxTLS(node)
 
 	case "shadowsocks":
@@ -609,10 +686,16 @@ func buildSingBoxOutbound(server *database.Server, node *database.InboundNode, n
 		if node.ServerName != "" {
 			naiveTLS["server_name"] = node.ServerName
 		}
+		if node.RealityEnabled && node.RealityPubkey != "" {
+			if node.RealityServer != "" {
+				naiveTLS["server_name"] = node.RealityServer
+			}
+			naiveTLS["utls"] = map[string]interface{}{
+				"enabled":     true,
+				"fingerprint": "chrome",
+			}
+		}
 		outbound["tls"] = naiveTLS
-
-	default:
-		return nil
 	}
 
 	return outbound
@@ -624,13 +707,9 @@ func buildSingBoxTLS(node *database.InboundNode) map[string]interface{} {
 		"enabled":  true,
 		"insecure": true,
 	}
-
-	// 服务器名称
 	if node.ServerName != "" {
 		tls["server_name"] = node.ServerName
 	}
-
-	// Reality 配置
 	if node.RealityEnabled && node.RealityPubkey != "" {
 		if node.RealityServer != "" {
 			tls["server_name"] = node.RealityServer
@@ -641,13 +720,10 @@ func buildSingBoxTLS(node *database.InboundNode) map[string]interface{} {
 			"short_id":   node.RealityShortId,
 		}
 	}
-
-	// uTLS 指纹
 	tls["utls"] = map[string]interface{}{
 		"enabled":     true,
 		"fingerprint": "chrome",
 	}
-
 	return tls
 }
 
@@ -656,7 +732,6 @@ func buildSingBoxTransport(node *database.InboundNode) map[string]interface{} {
 	transport := map[string]interface{}{
 		"type": node.TransportType,
 	}
-
 	switch node.TransportType {
 	case "ws":
 		if node.WsPath != "" {
@@ -687,7 +762,6 @@ func buildSingBoxTransport(node *database.InboundNode) map[string]interface{} {
 			transport["host"] = node.TransportHost
 		}
 	}
-
 	return transport
 }
 
@@ -701,9 +775,6 @@ func buildSingBoxTLSExt(ext *database.ExternalNode) map[string]interface{} {
 		tls["server_name"] = ext.ServerName
 	}
 	if ext.RealityEnabled && ext.RealityPubkey != "" {
-		if ext.RealityServer != "" {
-			tls["server_name"] = ext.RealityServer
-		}
 		tls["reality"] = map[string]interface{}{
 			"enabled":    true,
 			"public_key": ext.RealityPubkey,
@@ -717,92 +788,60 @@ func buildSingBoxTLSExt(ext *database.ExternalNode) map[string]interface{} {
 	return tls
 }
 
-// buildSingBoxTransportExt 构建外部节点的 sing-box 传输层配置
-func buildSingBoxTransportExt(ext *database.ExternalNode) map[string]interface{} {
-	transport := map[string]interface{}{
-		"type": ext.TransportType,
-	}
-	switch ext.TransportType {
-	case "ws":
-		if ext.WsPath != "" {
-			transport["path"] = ext.WsPath
-		}
-		if ext.TransportHost != "" {
-			transport["headers"] = map[string]interface{}{
-				"Host": ext.TransportHost,
-			}
-		}
-	case "grpc":
-		if ext.GrpcService != "" {
-			transport["service_name"] = ext.GrpcService
-		}
-	case "http", "h2":
-		transport["type"] = "http"
-		if ext.TransportHost != "" {
-			transport["host"] = []string{ext.TransportHost}
-		}
-		if ext.WsPath != "" {
-			transport["path"] = ext.WsPath
-		}
-	case "httpupgrade":
-		if ext.WsPath != "" {
-			transport["path"] = ext.WsPath
-		}
-		if ext.TransportHost != "" {
-			transport["host"] = ext.TransportHost
-		}
-	}
-	return transport
-}
-
+// buildSingBoxOutboundFromExternal 构建外部节点出站
 func buildSingBoxOutboundFromExternal(ext *database.ExternalNode) SingBoxOutbound {
 	outbound := SingBoxOutbound{
 		"tag":         ext.Name,
 		"server":      ext.Host,
 		"server_port": ext.Port,
+		"type":        ext.Protocol,
 	}
 
 	switch ext.Protocol {
-	case "vmess":
-		outbound["type"] = "vmess"
-		outbound["uuid"] = ext.UUID
-		outbound["security"] = "auto"
-		outbound["alter_id"] = 0
-		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
-			outbound["transport"] = buildSingBoxTransportExt(ext)
-		}
-		if ext.TlsEnabled {
+	case "trojan":
+		outbound["password"] = ext.UUID
+		if ext.TlsEnabled || ext.RealityEnabled {
 			outbound["tls"] = buildSingBoxTLSExt(ext)
 		}
-
+		if ext.TransportEnabled && ext.TransportType == "ws" {
+			transport := map[string]interface{}{"type": "ws"}
+			if ext.WsPath != "" {
+				transport["path"] = ext.WsPath
+			}
+			if ext.TransportHost != "" {
+				transport["headers"] = map[string]interface{}{"Host": ext.TransportHost}
+			}
+			outbound["transport"] = transport
+		}
 	case "vless":
-		outbound["type"] = "vless"
 		outbound["uuid"] = ext.UUID
 		if ext.Flow != "" {
 			outbound["flow"] = ext.Flow
 		}
-		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
-			outbound["transport"] = buildSingBoxTransportExt(ext)
-		}
 		if ext.TlsEnabled || ext.RealityEnabled {
 			outbound["tls"] = buildSingBoxTLSExt(ext)
 		}
-
-	case "trojan":
-		outbound["type"] = "trojan"
-		outbound["password"] = ext.UUID
-		if ext.TransportEnabled && ext.TransportType != "" && ext.TransportType != "tcp" {
-			outbound["transport"] = buildSingBoxTransportExt(ext)
+	case "vmess":
+		outbound["uuid"] = ext.UUID
+		outbound["security"] = "auto"
+		outbound["alter_id"] = 0
+		if ext.TlsEnabled {
+			outbound["tls"] = buildSingBoxTLSExt(ext)
 		}
-		outbound["tls"] = buildSingBoxTLSExt(ext)
-
+		if ext.TransportEnabled && ext.TransportType == "ws" {
+			transport := map[string]interface{}{"type": "ws"}
+			if ext.WsPath != "" {
+				transport["path"] = ext.WsPath
+			}
+			if ext.TransportHost != "" {
+				transport["headers"] = map[string]interface{}{"Host": ext.TransportHost}
+			}
+			outbound["transport"] = transport
+		}
 	case "shadowsocks":
-		outbound["type"] = "shadowsocks"
 		outbound["method"] = ext.SsMethod
 		outbound["password"] = ext.SsPassword
-
 	case "hysteria2":
-		outbound["type"] = "hysteria2"
 		outbound["password"] = ext.Hy2Password
 		outbound["up_mbps"] = ext.Hy2UpMbps
 		outbound["down_mbps"] = ext.Hy2DownMbps
@@ -813,15 +852,11 @@ func buildSingBoxOutboundFromExternal(ext *database.ExternalNode) SingBoxOutboun
 				"password": ext.Hy2ObfsPassword,
 			}
 		}
-
 	case "anytls":
-		outbound["type"] = "anytls"
 		outbound["password"] = ext.UUID
-		outbound["tls"] = buildSingBoxTLSExt(ext)
-
-	default:
-		return nil
+		if ext.TlsEnabled {
+			outbound["tls"] = buildSingBoxTLSExt(ext)
+		}
 	}
-
 	return outbound
 }
