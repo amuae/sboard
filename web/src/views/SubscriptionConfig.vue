@@ -1964,7 +1964,7 @@ const getDefaultSingBoxConfig = (): SingBoxConfig => ({
     },
     dns: {
       servers: [
-        { tag: 'dns-hosts', type: 'hosts', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '', inet6Range: '', predefined: { 'dns.alidns.com': ['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'], 'dns.google': ['8.8.8.8', '8.8.4.4', '2001:4860:4860::8888', '2001:4860:4860::8844'] } },
+        { tag: 'dns-hosts', type: 'hosts', server: '', serverPort: 0, detour: '', domainResolver: '', inet4Range: '', inet6Range: '', predefined: { 'dns.alidns.com': ['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'], 'alidns.com': ['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'], 'doh.pub': ['1.12.12.12', '120.53.53.53', '2402:4e00::', '2402:4e00:1::'], 'dns.google': ['8.8.8.8', '8.8.4.4', '2001:4860:4860::8888', '2001:4860:4860::8844'], 'cloudflare-dns.com': ['1.1.1.1', '1.0.0.1', '2606:4700:4700::1111', '2606:4700:4700::1001'] } },
         { tag: 'bootstrap', type: 'udp', server: '223.5.5.5', serverPort: 0, detour: '国内流量', domainResolver: 'dns-hosts', inet4Range: '', inet6Range: '' },
         { tag: 'aliyun', type: 'quic', server: 'dns.alidns.com', serverPort: 0, detour: '国内流量', domainResolver: 'dns-hosts', inet4Range: '', inet6Range: '' },
         { tag: 'cloudflare', type: 'https', server: 'cloudflare-dns.com', serverPort: 0, detour: '国外流量', domainResolver: 'dns-hosts', inet4Range: '', inet6Range: '' },
