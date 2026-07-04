@@ -99,74 +99,72 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 		}
 	}
 
-	config := make(map[string]interface{})
+	config := NewOrderedMap()
 
-	// Log
-	config["log"] = map[string]interface{}{
+	// 1. Log
+	config.Set("log", map[string]interface{}{
 		"disabled":  tpl.Log.Disabled,
 		"level":     tpl.Log.Level,
 		"output":    tpl.Log.Output,
 		"timestamp": tpl.Log.Timestamp,
-	}
+	})
 
-	// DNS
+	// 2. DNS
 	{
-		dnsConfig := map[string]interface{}{
-			"strategy":        tpl.DNS.Strategy,
-			"reverse_mapping": tpl.DNS.ReverseMapping,
-			"optimistic":      tpl.DNS.Optimistic,
-		}
+		dnsConfig := NewOrderedMap()
+		dnsConfig.Set("strategy", tpl.DNS.Strategy)
+		dnsConfig.Set("reverse_mapping", tpl.DNS.ReverseMapping)
+		dnsConfig.Set("optimistic", tpl.DNS.Optimistic)
 		if tpl.DNS.Final != "" {
-			dnsConfig["final"] = tpl.DNS.Final
+			dnsConfig.Set("final", tpl.DNS.Final)
 		}
 		if tpl.DNS.ClientSubnet != "" {
-			dnsConfig["client_subnet"] = tpl.DNS.ClientSubnet
+			dnsConfig.Set("client_subnet", tpl.DNS.ClientSubnet)
 		}
 		if tpl.DNS.DisableCache {
-			dnsConfig["disable_cache"] = true
+			dnsConfig.Set("disable_cache", true)
 		}
 		if tpl.DNS.CacheCapacity > 0 {
-			dnsConfig["cache_capacity"] = tpl.DNS.CacheCapacity
+			dnsConfig.Set("cache_capacity", tpl.DNS.CacheCapacity)
 		}
 
-		var dnsServers []map[string]interface{}
+		var dnsServers []*OrderedMap
 		for _, srv := range tpl.DNS.Servers {
-			server := map[string]interface{}{
-				"tag":  srv.Tag,
-				"type": srv.Type,
-			}
+			server := NewOrderedMap()
+			server.Set("tag", srv.Tag)
+			server.Set("type", srv.Type)
 			switch srv.Type {
 			case "fakeip":
 				if srv.Inet4Range != "" {
-					server["inet4_range"] = srv.Inet4Range
+					server.Set("inet4_range", srv.Inet4Range)
 				}
 				if srv.Inet6Range != "" {
-					server["inet6_range"] = srv.Inet6Range
+					server.Set("inet6_range", srv.Inet6Range)
 				}
 			case "group":
-				server["servers"] = srv.Servers
+				server.Set("servers", srv.Servers)
 			case "hosts":
 				if srv.Predefined != nil {
-					server["predefined"] = srv.Predefined
+					server.Set("predefined", srv.Predefined)
 				}
 				fallthrough
 			default:
 				if srv.Server != "" {
-					server["server"] = srv.Server
+					server.Set("server", srv.Server)
 				}
 				if srv.ServerPort > 0 {
-					server["server_port"] = srv.ServerPort
+					server.Set("server_port", srv.ServerPort)
 				}
 				if srv.Detour != "" {
-					server["detour"] = srv.Detour
+					server.Set("detour", srv.Detour)
 				}
 				if srv.DomainResolver != "" {
-					server["domain_resolver"] = srv.DomainResolver
+					server.Set("domain_resolver", srv.DomainResolver)
 				}
 			}
 			dnsServers = append(dnsServers, server)
 		}
-		dnsConfig["servers"] = dnsServers
+		dnsConfig.Set("servers", dnsServers)
 
 		var dnsRules []map[string]interface{}
 		for _, rule := range tpl.DNS.Rules {
@@ -175,21 +173,39 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				dnsRules = append(dnsRules, dnsRule)
 			}
 		}
-		dnsConfig["rules"] = dnsRules
-		config["dns"] = dnsConfig
+		dnsConfig.Set("rules", dnsRules)
+		config.Set("dns", dnsConfig)
 	}
 
-	// NTP
+	// 3. NTP
 	if tpl.NTP.Enabled {
-		config["ntp"] = map[string]interface{}{
-			"enabled":     true,
-			"interval":    tpl.NTP.Interval,
-			"server":      tpl.NTP.Server,
-			"server_port": tpl.NTP.ServerPort,
-		}
+		ntpConfig := NewOrderedMap()
+		ntpConfig.Set("enabled", true)
+		ntpConfig.Set("interval", tpl.NTP.Interval)
+		ntpConfig.Set("server", tpl.NTP.Server)
+		ntpConfig.Set("server_port", tpl.NTP.ServerPort)
+		config.Set("ntp", ntpConfig)
 	}
 
-	// Inbound (TUN)
+	// 4. HTTP Clients
+	if len(tpl.HttpClients) > 0 {
+		var httpClients []*OrderedMap
+		for _, hc := range tpl.HttpClients {
+			client := NewOrderedMap()
+			client.Set("tag", hc.Tag)
+			client.Set("version", hc.Version)
+			if len(hc.Headers) > 0 {
+				client.Set("headers", hc.Headers)
+			}
+			if hc.Detour != "" {
+				client.Set("detour", hc.Detour)
+			}
+			httpClients = append(httpClients, client)
+		}
+		config.Set("http_clients", httpClients)
+	}
+
+	// 5. Inbounds (TUN)
 	if tpl.Inbound.TunEnable {
 		addresses := []string{}
 		if tpl.Inbound.AddressIPv4 != "" {
@@ -198,116 +214,121 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 		if tpl.Inbound.AddressIPv6 != "" {
 			addresses = append(addresses, tpl.Inbound.AddressIPv6)
 		}
-		config["inbounds"] = []map[string]interface{}{{
-			"type":           "tun",
-			"tag":            "tun-in",
-			"interface_name": tpl.Inbound.InterfaceName,
-			"mtu":            tpl.Inbound.MTU,
-			"address":        addresses,
-			"stack":          tpl.Inbound.Stack,
-			"auto_route":     tpl.Inbound.AutoRoute,
-			"auto_redirect":  tpl.Inbound.AutoRedirect,
-			"strict_route":   tpl.Inbound.StrictRoute,
-		}}
+		inbound := NewOrderedMap()
+		inbound.Set("type", "tun")
+		inbound.Set("tag", "tun-in")
+		inbound.Set("interface_name", tpl.Inbound.InterfaceName)
+		inbound.Set("mtu", tpl.Inbound.MTU)
+		inbound.Set("address", addresses)
+		inbound.Set("stack", tpl.Inbound.Stack)
+		inbound.Set("auto_route", tpl.Inbound.AutoRoute)
+		inbound.Set("auto_redirect", tpl.Inbound.AutoRedirect)
+		inbound.Set("strict_route", tpl.Inbound.StrictRoute)
+		config.Set("inbounds", []*OrderedMap{inbound})
 	}
 
-	// Outbounds
-	outbounds := []map[string]interface{}{
-		{"type": "direct", "tag": "DIRECT"},
-	}
-	for _, group := range tpl.OutboundGroups {
-		outbound := map[string]interface{}{
-			"type": group.Type,
-			"tag":  group.Tag,
-		}
-		var selectedTags []string
-		switch group.FilterMode {
-		case "geoip-cn":
-			switch group.Filter {
-			case "cn":
-				selectedTags = append([]string{"DIRECT"}, domesticProxyTags...)
-			case "!cn":
-				selectedTags = overseasProxyTags
-			default:
-				selectedTags = overseasProxyTags
-			}
-		case "geoip-country":
-			countries := strings.Split(group.Filter, ",")
-			for _, country := range countries {
-				country = strings.TrimSpace(strings.ToUpper(country))
-				if tags, ok := countryProxyTags[country]; ok {
-					selectedTags = append(selectedTags, tags...)
+	// 6. Outbounds
+	{
+		var outboundList []*OrderedMap
+		direct := NewOrderedMap()
+		direct.Set("type", "direct")
+		direct.Set("tag", "DIRECT")
+		outboundList = append(outboundList, direct)
+
+		for _, group := range tpl.OutboundGroups {
+			outbound := NewOrderedMap()
+			outbound.Set("type", group.Type)
+			outbound.Set("tag", group.Tag)
+
+			var selectedTags []string
+			switch group.FilterMode {
+			case "geoip-cn":
+				switch group.Filter {
+				case "cn":
+					selectedTags = append([]string{"DIRECT"}, domesticProxyTags...)
+				case "!cn":
+					selectedTags = overseasProxyTags
+				default:
+					selectedTags = overseasProxyTags
 				}
-			}
-		case "regex":
-			if group.Filter != "" {
-				pattern, err := regexp.Compile(group.Filter)
-				if err == nil {
-					for _, nodeOutbound := range nodeOutbounds {
-						tag := safeStringFromMap(nodeOutbound, "tag")
-						if tag != "" && pattern.MatchString(tag) {
-							selectedTags = append(selectedTags, tag)
+			case "geoip-country":
+				countries := strings.Split(group.Filter, ",")
+				for _, country := range countries {
+					country = strings.TrimSpace(strings.ToUpper(country))
+					if tags, ok := countryProxyTags[country]; ok {
+						selectedTags = append(selectedTags, tags...)
+					}
+				}
+			case "regex":
+				if group.Filter != "" {
+					pattern, err := regexp.Compile(group.Filter)
+					if err == nil {
+						for _, nodeOutbound := range nodeOutbounds {
+							tag := safeStringFromMap(nodeOutbound, "tag")
+							if tag != "" && pattern.MatchString(tag) {
+								selectedTags = append(selectedTags, tag)
+							}
 						}
 					}
 				}
-			}
-		case "all":
-			for _, nodeOutbound := range nodeOutbounds {
-				tag := safeStringFromMap(nodeOutbound, "tag")
-				if tag != "" {
-					selectedTags = append(selectedTags, tag)
-				}
-			}
-		default:
-			if group.Include != "" {
-				// selector 模式：使用 include 正则匹配所有节点
+			case "all":
 				for _, nodeOutbound := range nodeOutbounds {
 					tag := safeStringFromMap(nodeOutbound, "tag")
 					if tag != "" {
 						selectedTags = append(selectedTags, tag)
 					}
 				}
-				if group.Include != "(?i)-" {
-					outbound["include"] = group.Include
+			default:
+				if group.Include != "" {
+					for _, nodeOutbound := range nodeOutbounds {
+						tag := safeStringFromMap(nodeOutbound, "tag")
+						if tag != "" {
+							selectedTags = append(selectedTags, tag)
+						}
+					}
+					if group.Include != "(?i)-" {
+						outbound.Set("include", group.Include)
+					}
+				} else {
+					selectedTags = overseasProxyTags
 				}
-			} else {
-				selectedTags = overseasProxyTags
 			}
+			if len(selectedTags) > 0 && group.Type != "direct" {
+				outbound.Set("outbounds", selectedTags)
+			}
+			if group.Type == "urltest" {
+				if group.URL != "" {
+					outbound.Set("url", group.URL)
+				}
+				if group.Interval != "" {
+					outbound.Set("interval", group.Interval)
+				}
+			}
+			outboundList = append(outboundList, outbound)
 		}
-		if len(selectedTags) > 0 {
-			if group.Type == "direct" {
-				// direct 类型不需要 outbounds 列表
-			} else {
-				outbound["outbounds"] = selectedTags
+		for _, nodeOutbound := range nodeOutbounds {
+			om := NewOrderedMap()
+			for _, k := range []string{"type", "tag", "server", "server_port", "password", "uuid", "flow", "method", "plugin", "plugin_opts", "up_mbps", "down_mbps", "obfs", "tls", "transport", "security", "alter_id", "username", "utls"} {
+				if v, ok := nodeOutbound[k]; ok {
+					om.Set(k, v)
+				}
 			}
+			outboundList = append(outboundList, om)
 		}
-		if group.Type == "urltest" {
-			if group.URL != "" {
-				outbound["url"] = group.URL
-			}
-			if group.Interval != "" {
-				outbound["interval"] = group.Interval
-			}
-		}
-		outbounds = append(outbounds, outbound)
+		config.Set("outbounds", outboundList)
 	}
-	for _, nodeOutbound := range nodeOutbounds {
-		outbounds = append(outbounds, nodeOutbound)
-	}
-	config["outbounds"] = outbounds
 
-	// Route
+	// 7. Route
 	{
-		routeConfig := map[string]interface{}{
-			"final":                   tpl.Route.Final,
-			"auto_detect_interface":   tpl.Route.AutoDetectInterface,
-			"default_domain_resolver": tpl.Route.DefaultDomainResolver,
-		}
+		routeConfig := NewOrderedMap()
+		routeConfig.Set("final", tpl.Route.Final)
+		routeConfig.Set("auto_detect_interface", tpl.Route.AutoDetectInterface)
+		routeConfig.Set("default_domain_resolver", tpl.Route.DefaultDomainResolver)
 		if tpl.Route.FindProcess {
-			routeConfig["find_process"] = true
+			routeConfig.Set("find_process", true)
 		}
 		if tpl.Route.DefaultHttpClient != "" {
-			routeConfig["default_http_client"] = tpl.Route.DefaultHttpClient
+			routeConfig.Set("default_http_client", tpl.Route.DefaultHttpClient)
 		}
 
 		var routeRules []map[string]interface{}
@@ -317,83 +338,66 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				routeRules = append(routeRules, routeRule)
 			}
 		}
-		routeConfig["rules"] = routeRules
+		routeConfig.Set("rules", routeRules)
 
-		var ruleSets []map[string]interface{}
+		var ruleSets []*OrderedMap
 		for _, rs := range tpl.Route.RuleSets {
-			ruleSet := map[string]interface{}{
-				"tag":  rs.Tag,
-				"type": rs.Type,
-			}
+			ruleSet := NewOrderedMap()
+			ruleSet.Set("tag", rs.Tag)
+			ruleSet.Set("type", rs.Type)
 			if rs.Path != "" {
-				ruleSet["path"] = rs.Path
+				ruleSet.Set("path", rs.Path)
 			}
 			if rs.URL != "" {
-				ruleSet["url"] = rs.URL
+				ruleSet.Set("url", rs.URL)
 			}
 			ruleSets = append(ruleSets, ruleSet)
 		}
-		routeConfig["rule_set"] = ruleSets
-		config["route"] = routeConfig
+		routeConfig.Set("rule_set", ruleSets)
+		config.Set("route", routeConfig)
 	}
 
-	// Experimental
-	expConfig := map[string]interface{}{
-		"cache_file": map[string]interface{}{
-			"enabled":      tpl.Experimental.CacheFileEnabled,
-			"store_fakeip": tpl.Experimental.StoreFakeip,
-			"store_rdrc":   tpl.Experimental.StoreRdrc,
-		},
-		"clash_api": map[string]interface{}{
-			"external_controller": tpl.Experimental.ExternalController,
-			"external_ui":         tpl.Experimental.ExternalUi,
-		},
-	}
-	if tpl.Experimental.ExternalUiDownloadUrl != "" {
-		expConfig["clash_api"].(map[string]interface{})["external_ui_download_url"] = tpl.Experimental.ExternalUiDownloadUrl
-	}
-	if tpl.Experimental.ExternalUiHttpClient != "" {
-		expConfig["clash_api"].(map[string]interface{})["external_ui_http_client"] = tpl.Experimental.ExternalUiHttpClient
-	}
-	if tpl.Experimental.DefaultMode != "" {
-		expConfig["clash_api"].(map[string]interface{})["default_mode"] = tpl.Experimental.DefaultMode
-	}
-	if tpl.Experimental.UrlTestUnifiedDelay {
-		expConfig["urltest_unified_delay"] = true
-	}
-	config["experimental"] = expConfig
-
-	// HTTP Clients
-	if len(tpl.HttpClients) > 0 {
-		var httpClients []map[string]interface{}
-		for _, hc := range tpl.HttpClients {
-			client := map[string]interface{}{
-				"tag":     hc.Tag,
-				"version": hc.Version,
-			}
-			if len(hc.Headers) > 0 {
-				client["headers"] = hc.Headers
-			}
-			if hc.Detour != "" {
-				client["detour"] = hc.Detour
-			}
-			httpClients = append(httpClients, client)
-		}
-		config["http_clients"] = httpClients
-	}
-
-	// Services
+	// 8. Services
 	if len(tpl.Services) > 0 {
-		var services []map[string]interface{}
+		var services []*OrderedMap
 		for _, svc := range tpl.Services {
-			service := map[string]interface{}{
-				"type":        svc.Type,
-				"listen":      svc.Listen,
-				"listen_port": svc.ListenPort,
-			}
+			service := NewOrderedMap()
+			service.Set("type", svc.Type)
+			service.Set("listen", svc.Listen)
+			service.Set("listen_port", svc.ListenPort)
 			services = append(services, service)
 		}
-		config["services"] = services
+		config.Set("services", services)
+	}
+
+	// 9. Experimental
+	{
+		expConfig := NewOrderedMap()
+
+		cacheFile := NewOrderedMap()
+		cacheFile.Set("enabled", tpl.Experimental.CacheFileEnabled)
+		cacheFile.Set("store_fakeip", tpl.Experimental.StoreFakeip)
+		cacheFile.Set("store_rdrc", tpl.Experimental.StoreRdrc)
+		expConfig.Set("cache_file", cacheFile)
+
+		clashAPI := NewOrderedMap()
+		clashAPI.Set("external_controller", tpl.Experimental.ExternalController)
+		clashAPI.Set("external_ui", tpl.Experimental.ExternalUi)
+		if tpl.Experimental.ExternalUiDownloadUrl != "" {
+			clashAPI.Set("external_ui_download_url", tpl.Experimental.ExternalUiDownloadUrl)
+		}
+		if tpl.Experimental.ExternalUiHttpClient != "" {
+			clashAPI.Set("external_ui_http_client", tpl.Experimental.ExternalUiHttpClient)
+		}
+		if tpl.Experimental.DefaultMode != "" {
+			clashAPI.Set("default_mode", tpl.Experimental.DefaultMode)
+		}
+		expConfig.Set("clash_api", clashAPI)
+
+		if tpl.Experimental.UrlTestUnifiedDelay {
+			expConfig.Set("urltest_unified_delay", true)
+		}
+		config.Set("experimental", expConfig)
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
