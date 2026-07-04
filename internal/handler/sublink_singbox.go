@@ -336,16 +336,20 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 	return string(data), nil
 }
 
-// buildSingBoxDNSRule 构建 SingBox DNS 规则
+// buildSingBoxDNSRule 构建 SingBox DNS 规则（sing-box 1.14 显式 action）
 func buildSingBoxDNSRule(rule SingBoxDNSRule) map[string]interface{} {
 	result := map[string]interface{}{}
 
-	// 设置 server 或 action
+	// sing-box 1.14: DNS 规则需要显式 action
+	// route → server（默认行为）, respond → 直接响应, evaluate → 评估
+	if rule.Action == "" && rule.Server != "" {
+		// 有 server 字段时默认 action=route
+		result["action"] = "route"
+	} else if rule.Action != "" {
+		result["action"] = rule.Action
+	}
 	if rule.Server != "" {
 		result["server"] = rule.Server
-	}
-	if rule.Action != "" {
-		result["action"] = rule.Action
 	}
 
 	switch rule.Type {
@@ -387,13 +391,18 @@ func buildSingBoxDNSRule(rule SingBoxDNSRule) map[string]interface{} {
 	return result
 }
 
-// buildSingBoxRouteRule 构建 SingBox 路由规则
+// buildSingBoxRouteRule 构建 SingBox 路由规则（sing-box 1.14 显式 action）
 func buildSingBoxRouteRule(rule SingBoxRouteRule) map[string]interface{} {
 	result := make(map[string]interface{})
 
-	// 设置 action 或 outbound
+	// sing-box 1.14: 路由规则使用显式 action 替代直接 outbound 字段
+	// route → 携带 outbound 参数（默认行为）
+	// direct → 直连, reject → 拒绝, hijack_dns → DNS 劫持, resolve → 解析 DNS
 	if rule.Action != "" {
 		result["action"] = rule.Action
+	} else if rule.Outbound != "" {
+		// 有 outbound 未设 action 时默认为 route
+		result["action"] = "route"
 	}
 	if rule.Outbound != "" {
 		result["outbound"] = rule.Outbound
