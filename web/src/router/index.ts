@@ -68,7 +68,7 @@ const router = createRouter({
 })
 
 // 路由守卫 — 验证 token 存在且未过期
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   const token = clearExpiredToken()
 
   if (to.meta.requiresAuth && !token) {

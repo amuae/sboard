@@ -140,21 +140,22 @@
                   </div>
                   <div class="mb-2">
                     <label>Public Key 
-                      <button type="button" class="btn btn-sm btn-outline-primary" @click="generateRealityKeys">
-                        <i class="bi bi-key"></i> 生成密钥对
+                      <button type="button" class="btn btn-sm btn-outline-primary" @click="generateRealityKeys" :disabled="generatingRealityKeys">
+                        <span v-if="generatingRealityKeys" class="spinner-border spinner-border-sm me-1"></span>
+                        <i v-else class="bi bi-key"></i> {{ generatingRealityKeys ? '生成中...' : '生成密钥对' }}
                       </button>
                     </label>
-                    <input type="text" class="form-control" v-model="formData.reality_pubkey" placeholder="点击生成按钮自动生成">
+                    <input type="text" class="form-control" v-model.trim="formData.reality_pubkey" placeholder="可点击生成，也可手动填写" autocomplete="off">
                   </div>
                   <div class="mb-2">
                     <label>Private Key (部署时使用)</label>
-                    <input type="text" class="form-control" v-model="formData.reality_privkey" placeholder="点击生成按钮自动生成" readonly>
-                    <small class="text-muted">此密钥将在部署时写入服务器配置</small>
+                    <input type="text" class="form-control" v-model.trim="formData.reality_privkey" placeholder="可点击生成，也可手动填写" autocomplete="off">
+                    <small class="text-muted">此密钥将在部署时写入服务器配置，可手动填写</small>
                   </div>
                   <div class="mb-2">
                     <label>Short ID</label>
-                    <input type="text" class="form-control" v-model="formData.reality_short_id" placeholder="保存时自动生成" readonly>
-                    <small class="text-muted">保存节点时自动生成的随机标识</small>
+                    <input type="text" class="form-control" v-model.trim="formData.reality_short_id" placeholder="留空则保存时自动生成" maxlength="16" autocomplete="off">
+                    <small class="text-muted">可手动填写十六进制标识，留空则保存时自动生成</small>
                   </div>
                 </div>
               </div>
@@ -423,6 +424,7 @@ let deleteModal: Modal | null = null
 // 表单
 const isEditing = ref(false)
 const saving = ref(false)
+const generatingRealityKeys = ref(false)
 const formData = ref(getDefaultFormData())
 
 // 删除
@@ -516,13 +518,19 @@ function onProtocolChange() {
 }
 
 async function generateRealityKeys() {
+  if (generatingRealityKeys.value) return
+  generatingRealityKeys.value = true
   try {
     const res = await apiGenerateRealityKeys()
-    formData.value.reality_pubkey = res.data.public_key
-    formData.value.reality_privkey = res.data.private_key
+    const keys = res.data.data
+    formData.value.reality_pubkey = keys.public_key
+    formData.value.reality_privkey = keys.private_key
+    formData.value.reality_short_id = keys.short_id
     showToast('success', '成功', '已生成 Reality 密钥对')
   } catch (err: any) {
     showToast('error', '错误', '生成 Reality 密钥对失败: ' + (err.response?.data?.error || err.message))
+  } finally {
+    generatingRealityKeys.value = false
   }
 }
 
@@ -579,6 +587,12 @@ async function saveNode() {
     showToast('warning', '警告', '请输入端口')
     return
   }
+  if (formData.value.reality_enabled && formData.value.protocol !== 'naive') {
+    if (!formData.value.reality_server || !formData.value.reality_pubkey || !formData.value.reality_privkey) {
+      showToast('warning', '警告', '启用 Reality 时请填写握手服务器、公钥和私钥')
+      return
+    }
+  }
 
   saving.value = true
   try {
@@ -587,7 +601,7 @@ async function saveNode() {
       protocol: formData.value.protocol,
       listen: formData.value.listen,
       port: formData.value.port,
-      tls_enabled: formData.value.tls_enabled,
+      tls_enabled: formData.value.tls_enabled || formData.value.reality_enabled,
       server_name: formData.value.server_name,
       cert_path: formData.value.cert_path,
       key_path: formData.value.key_path,

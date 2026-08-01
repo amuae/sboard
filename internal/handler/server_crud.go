@@ -16,36 +16,50 @@ import (
 
 // CreateServerRequest 创建服务器请求
 type CreateServerRequest struct {
-	Name       string `json:"name" binding:"required"`
-	Host       string `json:"host"`        // 由 Agent 上报，不再必填
-	HostIPv6   string `json:"host_ipv6"`   // 由 Agent 上报的 IPv6
-	NodeDomain string `json:"node_domain"` // 节点域名（用于订阅 DNS 解析）
-	Port       int    `json:"port"`
-	Category   string `json:"category"`
-	Enabled    int    `json:"enabled"`
-	Node1      string `json:"node_1"`
-	Node2      string `json:"node_2"`
-	Node3      string `json:"node_3"`
-	CoreType   string `json:"core_type"`
-	DnsResolve string `json:"dns_resolve"`
-	Notes      string `json:"notes"`
+	Name       string  `json:"name" binding:"required"`
+	Host       string  `json:"host"`        // 由 Agent 上报，不再必填
+	HostIPv6   string  `json:"host_ipv6"`   // 由 Agent 上报的 IPv6
+	NodeDomain string  `json:"node_domain"` // 节点域名（用于订阅 DNS 解析）
+	Port       int     `json:"port"`
+	Category   string  `json:"category"`
+	Enabled    *int    `json:"enabled"`
+	Node1      string  `json:"node_1"`
+	Node2      string  `json:"node_2"`
+	Node3      string  `json:"node_3"`
+	CoreType   string  `json:"core_type"`
+	DnsResolve string  `json:"dns_resolve"`
+	Notes      *string `json:"notes"`
 }
 
 // UpdateServerRequest 更新服务器请求
 type UpdateServerRequest struct {
-	Name       string `json:"name"`
-	Host       string `json:"host"`
-	HostIPv6   string `json:"host_ipv6"`
-	NodeDomain string `json:"node_domain"` // 节点域名（用于订阅 DNS 解析）
-	Port       int    `json:"port"`
-	Category   string `json:"category"`
-	Enabled    int    `json:"enabled"`
-	Node1      string `json:"node_1"`
-	Node2      string `json:"node_2"`
-	Node3      string `json:"node_3"`
-	CoreType   string `json:"core_type"`
-	DnsResolve string `json:"dns_resolve"`
-	Notes      string `json:"notes"`
+	Name       string  `json:"name"`
+	Host       string  `json:"host"`
+	HostIPv6   string  `json:"host_ipv6"`
+	NodeDomain string  `json:"node_domain"` // 节点域名（用于订阅 DNS 解析）
+	Port       int     `json:"port"`
+	Category   string  `json:"category"`
+	Enabled    *int    `json:"enabled"`
+	Node1      string  `json:"node_1"`
+	Node2      string  `json:"node_2"`
+	Node3      string  `json:"node_3"`
+	CoreType   string  `json:"core_type"`
+	DnsResolve string  `json:"dns_resolve"`
+	Notes      *string `json:"notes"`
+}
+
+func enabledValue(value *int) int {
+	if value == nil {
+		return 1
+	}
+	return *value
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // handleListServers 获取服务器列表
@@ -183,6 +197,10 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误: "+err.Error())
 		return
 	}
+	if err := validateEnabled(req.Enabled); err != nil {
+		errorJSON(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// 设置默认值
 	if req.Port == 0 {
@@ -206,14 +224,14 @@ func (s *Server) handleCreateServer(c *gin.Context) {
 		HostIPv6:   req.HostIPv6,
 		NodeDomain: req.NodeDomain,
 		DnsResolve: req.DnsResolve,
-		Port:       22,
+		Port:       req.Port,
 		Category:   req.Category,
-		Enabled:    req.Enabled,
+		Enabled:    enabledValue(req.Enabled),
 		Node1:      req.Node1,
 		Node2:      req.Node2,
 		Node3:      req.Node3,
 		AgentToken: generateAgentToken(), // 自动生成 Token
-		Notes:      req.Notes,
+		Notes:      stringValue(req.Notes),
 	}
 
 	if err := database.GetDB().Create(&server).Error; err != nil {
@@ -243,6 +261,10 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误")
 		return
 	}
+	if err := validateEnabled(req.Enabled); err != nil {
+		errorJSON(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// 如果有新名称，检查是否重复
 	if req.Name != "" && req.Name != server.Name {
@@ -270,7 +292,9 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 	if req.Category != "" {
 		server.Category = req.Category
 	}
-	server.Enabled = req.Enabled
+	if req.Enabled != nil {
+		server.Enabled = *req.Enabled
+	}
 	server.Node1 = req.Node1
 	server.Node2 = req.Node2
 	server.Node3 = req.Node3
@@ -278,7 +302,9 @@ func (s *Server) handleUpdateServer(c *gin.Context) {
 	if req.DnsResolve != "" {
 		server.DnsResolve = req.DnsResolve
 	}
-	server.Notes = req.Notes
+	if req.Notes != nil {
+		server.Notes = *req.Notes
+	}
 
 	if err := database.GetDB().Save(&server).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存失败")
@@ -298,6 +324,9 @@ func (s *Server) handleDeleteServer(c *gin.Context) {
 
 	// 同时删除关联的节点配置
 	database.GetDB().Unscoped().Where("server_id = ?", id).Delete(&database.ServerNodeConfig{})
+	// 落地出站同样属于服务器资源，删除服务器时一并清理，避免
+	// 残留配置在后续迁移或审计中被误认为仍然有效。
+	database.GetDB().Unscoped().Where("server_id = ?", id).Delete(&database.ServerOutbound{})
 
 	result := database.GetDB().Unscoped().Delete(&database.Server{}, id)
 	if result.Error != nil {
@@ -310,6 +339,7 @@ func (s *Server) handleDeleteServer(c *gin.Context) {
 		return
 	}
 
+	go BroadcastConfigUpdateForce()
 	successMsgJSON(c, "服务器删除成功")
 }
 

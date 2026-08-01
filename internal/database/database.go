@@ -2,6 +2,7 @@ package database
 
 import (
 	"log"
+	"os"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -29,7 +30,7 @@ func Init(dbPath string) error {
 	var err error
 
 	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+		Logger: newDatabaseLogger(log.New(os.Stdout, "\r\n", log.LstdFlags)),
 	})
 	if err != nil {
 		return err
@@ -79,6 +80,15 @@ func Init(dbPath string) error {
 	return nil
 }
 
+func newDatabaseLogger(writer logger.Writer) logger.Interface {
+	return logger.New(writer, logger.Config{
+		SlowThreshold:             200 * time.Millisecond,
+		LogLevel:                  logger.Warn,
+		IgnoreRecordNotFoundError: true,
+		Colorful:                  false,
+	})
+}
+
 // autoMigrate 自动迁移数据库表结构
 func autoMigrate() error {
 	err := DB.AutoMigrate(
@@ -103,89 +113,94 @@ func autoMigrate() error {
 	return migrateUserExtraUUIDs()
 }
 
-// migrateUserExtraUUIDs 为老用户补充生成额外 UUID 并填充 UserExtraUUID 表（批量操作）
+// migrateUserExtraUUIDs reconciles the legacy UUID1-UUID10 columns with the
+// normalized UserExtraUUID table. The normalized table is authoritative when
+// both sides contain a value, and missing old records are copied into it.
 func migrateUserExtraUUIDs() error {
-	// 1. 为 UUID1 为空的用户批量生成 10 个额外 UUID
 	var users []ProxyUser
-	if err := DB.Where("uuid1 IS NULL OR uuid1 = ''").Find(&users).Error; err != nil {
+	if err := DB.Find(&users).Error; err != nil {
 		return err
 	}
 
-	if len(users) > 0 {
-		type uuidUpdate struct {
-			ID    uint
-			UUIDs [10]string
-		}
-		var updates []uuidUpdate
-		var extraUUIDRecords []UserExtraUUID
-
-		for _, user := range users {
-			var uuids [10]string
-			for i := range uuids {
-				uuids[i] = uuid.New().String()
-			}
-			updates = append(updates, uuidUpdate{ID: user.ID, UUIDs: uuids})
-			for slot, uid := range uuids {
-				extraUUIDRecords = append(extraUUIDRecords, UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid})
-			}
-		}
-
-		// 批量更新 ProxyUser
-		for _, u := range updates {
-			DB.Model(&ProxyUser{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
-				"uuid1":  u.UUIDs[0],
-				"uuid2":  u.UUIDs[1],
-				"uuid3":  u.UUIDs[2],
-				"uuid4":  u.UUIDs[3],
-				"uuid5":  u.UUIDs[4],
-				"uuid6":  u.UUIDs[5],
-				"uuid7":  u.UUIDs[6],
-				"uuid8":  u.UUIDs[7],
-				"uuid9":  u.UUIDs[8],
-				"uuid10": u.UUIDs[9],
-			})
-		}
-
-		// 批量创建 UserExtraUUID
-		if len(extraUUIDRecords) > 0 {
-			DB.CreateInBatches(extraUUIDRecords, 100)
-		}
-		log.Printf("已为 %d 个用户批量生成额外 UUID", len(users))
-	}
-
-	// 2. 迁移已有 UUID1-UUID10 但尚未写入 UserExtraUUID 表的用户（批量）
-	return migrateExistingUserExtraUUIDs()
-}
-
-// migrateExistingUserExtraUUIDs 将已有 UUID1-UUID10 的用户数据批量同步到 UserExtraUUID 表
-func migrateExistingUserExtraUUIDs() error {
-	var users []ProxyUser
-	if err := DB.Where("uuid1 IS NOT NULL AND uuid1 != ''").Find(&users).Error; err != nil {
-		return err
-	}
-
-	var records []UserExtraUUID
+	generatedUsers := 0
+	updatedUsers := 0
 	for _, user := range users {
-		// 检查是否已有 UserExtraUUID 记录
-		var count int64
-		DB.Model(&UserExtraUUID{}).Where("user_id = ?", user.ID).Count(&count)
-		if count > 0 {
-			continue
+		var records []UserExtraUUID
+		if err := DB.Where("user_id = ?", user.ID).Find(&records).Error; err != nil {
+			return err
 		}
 
-		uuids := []string{user.UUID1, user.UUID2, user.UUID3, user.UUID4, user.UUID5,
-			user.UUID6, user.UUID7, user.UUID8, user.UUID9, user.UUID10}
-		for slot, uid := range uuids {
-			if uid != "" {
-				records = append(records, UserExtraUUID{UserID: user.ID, Slot: slot + 1, UUID: uid})
+		tableValues := make(map[int]string, len(records))
+		for _, record := range records {
+			if record.Slot >= 1 && record.Slot <= 10 && record.UUID != "" {
+				tableValues[record.Slot] = record.UUID
 			}
 		}
+		legacyValues := []string{
+			user.UUID1, user.UUID2, user.UUID3, user.UUID4, user.UUID5,
+			user.UUID6, user.UUID7, user.UUID8, user.UUID9, user.UUID10,
+		}
+
+		values := make(map[int]string, 10)
+		for slot := 1; slot <= 10; slot++ {
+			if value := tableValues[slot]; value != "" {
+				values[slot] = value
+			} else if value := legacyValues[slot-1]; value != "" {
+				values[slot] = value
+			}
+		}
+
+		// A completely empty user is an old installation. Initialize all ten
+		// slots once; persisted values make subsequent starts idempotent.
+		if len(values) == 0 {
+			for slot := 1; slot <= 10; slot++ {
+				values[slot] = uuid.New().String()
+			}
+			generatedUsers++
+		}
+
+		if err := DB.Transaction(func(tx *gorm.DB) error {
+			updates := make(map[string]interface{})
+			for slot, value := range values {
+				var existing UserExtraUUID
+				result := tx.Where("user_id = ? AND slot = ?", user.ID, slot).First(&existing)
+				switch {
+				case result.Error == nil:
+					// Keep a previously stored normalized value if one exists.
+					if existing.UUID != "" {
+						value = existing.UUID
+					} else if err := tx.Model(&existing).Update("uuid", value).Error; err != nil {
+						return err
+					}
+				case result.Error == gorm.ErrRecordNotFound:
+					if err := tx.Create(&UserExtraUUID{UserID: user.ID, Slot: slot, UUID: value}).Error; err != nil {
+						return err
+					}
+				default:
+					return result.Error
+				}
+
+				if column, ok := legacyExtraUUIDColumn(slot); ok && legacyValues[slot-1] != value {
+					updates[column] = value
+				}
+			}
+			if len(updates) > 0 {
+				if err := tx.Model(&ProxyUser{}).Where("id = ?", user.ID).Updates(updates).Error; err != nil {
+					return err
+				}
+				updatedUsers++
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
 
-	if len(records) > 0 {
-		DB.CreateInBatches(records, 100)
-		log.Printf("已为 %d 个用户批量迁移额外 UUID 到关联表", len(users))
+	if generatedUsers > 0 {
+		log.Printf("已为 %d 个用户初始化额外 UUID", generatedUsers)
 	}
-
+	if updatedUsers > 0 {
+		log.Printf("已同步 %d 个用户的额外 UUID", updatedUsers)
+	}
 	return nil
 }

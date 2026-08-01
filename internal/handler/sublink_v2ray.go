@@ -32,7 +32,10 @@ func generateV2RaySubscription(servers []ServerWithNodes, nodeConfigs map[uint]m
 
 			// 生成落地出站节点（使用额外 UUID）
 			for _, ob := range swn.Outbounds {
-				extraUUID := user.GetExtraUUID(ob.Slot)
+				extraUUID, err := user.EnsureExtraUUID(ob.Slot)
+				if err != nil {
+					return "", fmt.Errorf("生成落地出站 UUID 失败: %w", err)
+				}
 				if extraUUID == "" {
 					continue
 				}

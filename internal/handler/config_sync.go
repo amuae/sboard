@@ -235,7 +235,7 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 
 	// TLS 配置
 	// hysteria2/naive 协议必须启用 TLS（hysteria2 强制要求 TLS 加密）
-	if node.TlsEnabled && node.Protocol != "shadowsocks" || node.Protocol == "naive" || node.Protocol == "hysteria2" {
+	if ((node.TlsEnabled || node.RealityEnabled) && node.Protocol != "shadowsocks") || node.Protocol == "naive" || node.Protocol == "hysteria2" {
 		tls := map[string]interface{}{
 			"enabled":     true,
 			"server_name": node.ServerName,
@@ -395,6 +395,13 @@ func generateServerSingBoxConfig(nodes []database.InboundNode, allUsers []databa
 	for i := range allUsers {
 		if allUsers[i].Enabled == 1 {
 			userMap[allUsers[i].ID] = &allUsers[i]
+		}
+	}
+	for _, user := range userMap {
+		for _, slot := range configuredSlots {
+			if _, err := user.EnsureExtraUUID(slot); err != nil {
+				return "", fmt.Errorf("生成落地出站 UUID 失败: %w", err)
+			}
 		}
 	}
 
@@ -602,7 +609,7 @@ func buildSingBoxInboundWithExtraUUIDs(node *database.InboundNode, relations []N
 
 	// TLS 配置
 	// hysteria2/naive 协议必须启用 TLS（hysteria2 强制要求 TLS 加密）
-	if node.TlsEnabled && node.Protocol != "shadowsocks" || node.Protocol == "naive" || node.Protocol == "hysteria2" {
+	if ((node.TlsEnabled || node.RealityEnabled) && node.Protocol != "shadowsocks") || node.Protocol == "naive" || node.Protocol == "hysteria2" {
 		tls := map[string]interface{}{
 			"enabled":     true,
 			"server_name": node.ServerName,
@@ -901,8 +908,8 @@ func buildOutboundTransport(ob *database.ServerOutbound) map[string]interface{} 
 // ========== 通用配置指纹 — 防抖之外的第二道保险 ==========
 
 var (
-	lastUniversalHash   string
-	universalHashMu     sync.Mutex
+	lastUniversalHash string
+	universalHashMu   sync.Mutex
 )
 
 // computeUniversalConfigHash 生成"通用配置"（不含各服务器落地出站）的 SHA256 哈希

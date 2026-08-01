@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -1330,8 +1331,11 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		log.Printf("开发者模式：使用预发布版本")
 	}
 
-	// 下载 URL（使用 ghfast.top 加速域名）
-	downloadURL := fmt.Sprintf("https://ghfast.top/https://github.com/amuae/sboard/releases/%s/%s", releaseType, zipFileName)
+	// ZIP 继续使用加速地址，校验文件从 GitHub 直取，避免下载代理同时
+	// 控制制品和校验值。
+	releaseURL := fmt.Sprintf("https://github.com/amuae/sboard/releases/%s", releaseType)
+	downloadURL := fmt.Sprintf("https://ghfast.top/%s/%s", releaseURL, zipFileName)
+	checksumsURL := releaseURL + "/checksums.txt"
 
 	log.Printf("下载地址: %s", downloadURL)
 
@@ -1347,6 +1351,15 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		return
 	}
 
+	// 先获取发布方提供的校验文件。
+	tempChecksumsPath := execPath + ".checksums.txt"
+	if err := downloadFile(checksumsURL, tempChecksumsPath); err != nil {
+		log.Printf("下载校验文件失败，取消更新: %v", err)
+		os.Remove(tempChecksumsPath)
+		return
+	}
+	defer os.Remove(tempChecksumsPath)
+
 	// 下载 zip 文件到临时路径
 	tempZipPath := execPath + ".zip"
 	if err := downloadFile(downloadURL, tempZipPath); err != nil {
@@ -1355,6 +1368,12 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		return
 	}
 	defer os.Remove(tempZipPath) // 确保清理 zip 文件
+
+	if err := verifyFileChecksum(tempZipPath, tempChecksumsPath, zipFileName); err != nil {
+		log.Printf("更新包校验失败，取消更新: %v", err)
+		return
+	}
+	log.Printf("更新包 SHA-256 校验通过")
 
 	// 从 zip 中提取可执行文件
 	binaryName := "sboard-agent"
@@ -1403,6 +1422,49 @@ func (a *Agent) handleSelfUpdate(_ *Message) {
 		// 如果服务管理器重启失败，直接退出让 systemd 重启
 		os.Exit(0)
 	}
+}
+
+// verifyFileChecksum verifies filePath against a standard sha256sum file.
+func verifyFileChecksum(filePath, checksumsPath, fileName string) error {
+	data, err := os.ReadFile(checksumsPath)
+	if err != nil {
+		return fmt.Errorf("读取校验文件失败: %v", err)
+	}
+
+	var expected string
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		if filepath.Base(name) == filepath.Base(fileName) {
+			expected = strings.ToLower(fields[0])
+			break
+		}
+	}
+	if expected == "" {
+		return fmt.Errorf("checksums.txt 中未找到 %s", fileName)
+	}
+	if decoded, err := hex.DecodeString(expected); err != nil || len(decoded) != sha256.Size {
+		return fmt.Errorf("%s 的 SHA-256 格式无效", fileName)
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("打开更新包失败: %v", err)
+	}
+	defer f.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, f); err != nil {
+		return fmt.Errorf("计算更新包 SHA-256 失败: %v", err)
+	}
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if actual != expected {
+		return fmt.Errorf("SHA-256 不匹配: got %s, want %s", actual, expected)
+	}
+	return nil
 }
 
 // extractFromZip 从 zip 文件中提取指定文件

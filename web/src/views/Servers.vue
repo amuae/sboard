@@ -206,7 +206,7 @@
                 </div>
                 <div class="col-md-3">
                   <div class="mb-3">
-                    <label class="form-label">订阅 IP 来源</label>
+                    <label class="form-label">订阅地址来源</label>
                     <select class="form-select" v-model="formData.dns_resolve">
                       <option value="none">节点域名</option>
                       <option value="ipv4">节点 IPv4</option>
@@ -309,7 +309,7 @@
                 <!-- 落地出站 Tab 内容 -->
                 <div v-if="serverConfigTab === 'outbound'">
                   <div class="d-flex justify-content-between align-items-center mb-3">
-                    <p class="text-muted small mb-0">配置落地服务器出站（最多10个，与用户额外UUID对应）</p>
+                    <p class="text-muted small mb-0">配置落地服务器出站（最多10个，订阅时自动为用户生成对应认证 UUID）</p>
                     <button 
                       class="btn btn-sm btn-primary" 
                       @click="openAddOutboundModal"

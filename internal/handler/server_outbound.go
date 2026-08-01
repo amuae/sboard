@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sboard-go/sboard/internal/database"
@@ -45,6 +47,32 @@ type OutboundRequest struct {
 	Network string `json:"network"`
 	WsPath  string `json:"ws_path"`
 	WsHost  string `json:"ws_host"`
+}
+
+func validateOutboundRequest(req *OutboundRequest) error {
+	req.Remark = strings.TrimSpace(req.Remark)
+	req.Host = strings.TrimSpace(req.Host)
+	if req.Remark == "" {
+		return fmt.Errorf("备注不能为空")
+	}
+	if req.Host == "" {
+		return fmt.Errorf("出站地址不能为空")
+	}
+	if req.Port < 1 || req.Port > 65535 {
+		return fmt.Errorf("出站端口必须在 1-65535 范围内")
+	}
+	switch req.Protocol {
+	case "shadowsocks", "ss", "trojan", "anytls", "socks5", "vless", "vmess", "hysteria2":
+	default:
+		return fmt.Errorf("不支持的出站协议: %s", req.Protocol)
+	}
+	if req.Reality && req.Protocol != "vless" {
+		return fmt.Errorf("Reality 仅支持 VLESS 出站")
+	}
+	if req.Reality && strings.TrimSpace(req.PubKey) == "" {
+		return fmt.Errorf("启用 Reality 时必须填写公钥")
+	}
+	return nil
 }
 
 // handleListServerOutbounds 获取服务器的所有落地出站
@@ -110,6 +138,10 @@ func (s *Server) handleCreateServerOutbound(c *gin.Context) {
 	var req OutboundRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误")
+		return
+	}
+	if err := validateOutboundRequest(&req); err != nil {
+		errorJSON(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -199,6 +231,10 @@ func (s *Server) handleUpdateServerOutbound(c *gin.Context) {
 	var req OutboundRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误")
+		return
+	}
+	if err := validateOutboundRequest(&req); err != nil {
+		errorJSON(c, http.StatusBadRequest, err.Error())
 		return
 	}
 

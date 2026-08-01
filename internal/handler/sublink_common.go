@@ -32,8 +32,8 @@ func safeStringFromMap(m map[string]interface{}, key string) string {
 	return s
 }
 
-// getEffectiveDnsResolve 获取最终的 IP 选择策略（仅控制使用 IPv4 还是 IPv6）
-// 优先使用用户的策略，如果用户设置为 "default"，则使用服务器的策略
+// getEffectiveDnsResolve 获取最终的订阅地址策略。
+// 优先使用用户的策略，如果用户设置为 "default"，则使用服务器的策略。
 func getEffectiveDnsResolve(user *database.ProxyUser, server *database.Server) string {
 	// 用户策略不为空且不为 "default"，使用用户策略
 	if user.DnsResolve != "" && user.DnsResolve != "default" {
@@ -95,8 +95,10 @@ func (s *Server) handleSublink(c *gin.Context) {
 	}
 	// 如果 query 中没有，尝试从 context 获取（短链接模式）
 	if userUUID == "" {
-		if uuid, exists := c.Get("uuid"); exists {
-			userUUID = uuid.(string)
+		if value, exists := c.Get("uuid"); exists {
+			if contextUUID, ok := value.(string); ok {
+				userUUID = contextUUID
+			}
 		}
 	}
 
@@ -133,13 +135,11 @@ func (s *Server) handleSublink(c *gin.Context) {
 		return
 	}
 
-	// 检查过期
-	expiryTime, err := time.Parse("2006-01-02", user.ExpiryDate)
-	if err == nil && expiryTime.Before(time.Now()) {
+	// 到期日期当天仍然有效；只在日期完全过去后拒绝订阅。
+	if isExpiryDatePassed(user.ExpiryDate, time.Now()) {
 		c.String(http.StatusForbidden, "订阅已过期")
 		return
 	}
-
 	// 获取用户关联的节点
 	var userNodeRelations []database.NodeUserRelation
 	database.GetDB().Where("user_id = ?", user.ID).Find(&userNodeRelations)
@@ -261,6 +261,7 @@ func (s *Server) handleSublink(c *gin.Context) {
 
 	var content string
 	var contentType string
+	var err error
 
 	switch format {
 	case "mihomo", "clash":
@@ -290,8 +291,10 @@ func (s *Server) handleSublink(c *gin.Context) {
 	}
 
 	expiryUnix := int64(0)
-	if expiryTime, err := time.Parse("2006-01-02", user.ExpiryDate); err == nil {
-		expiryUnix = expiryTime.Unix()
+	if expiryTime, err := time.ParseInLocation("2006-01-02", user.ExpiryDate, time.Local); err == nil {
+		// Subscription clients interpret this as an absolute expiration time;
+		// use the end of the configured day to match the access check above.
+		expiryUnix = time.Date(expiryTime.Year(), expiryTime.Month(), expiryTime.Day(), 23, 59, 59, 0, expiryTime.Location()).Unix()
 	}
 
 	// 获取站点标题
@@ -325,6 +328,15 @@ func (s *Server) handleSublink(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, contentType, []byte(content))
+}
+
+func isExpiryDatePassed(expiryDate string, now time.Time) bool {
+	expiry, err := time.ParseInLocation("2006-01-02", expiryDate, now.Location())
+	if err != nil {
+		return false
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	return expiry.Before(today)
 }
 
 // MihomoProxy 使用有序 slice 存储键值对
@@ -504,12 +516,19 @@ func initProxyBuildParams(server *database.Server, node *database.InboundNode, n
 	if customOpts != nil && customOpts.CustomUUID != "" {
 		uuid = customOpts.CustomUUID
 	}
-	// 根据 IP 选择策略选取 Agent 上报的 IP
+	// 根据服务器/用户策略选择订阅地址。none/domain 表示使用节点域名，
+	// 显式 ipv4/ipv6 才使用 Agent 上报的对应地址。
 	host := server.Host
 	dnsStrategy := getEffectiveDnsResolve(user, server)
-	// 如果策略为 ipv6 且服务器有 IPv6 地址，优先使用 IPv6
-	if dnsStrategy == "ipv6" && server.HostIPv6 != "" {
-		host = server.HostIPv6
+	switch dnsStrategy {
+	case "none", "domain", "default":
+		if nodeDomain := strings.TrimSpace(server.NodeDomain); nodeDomain != "" {
+			host = nodeDomain
+		}
+	case "ipv6":
+		if server.HostIPv6 != "" {
+			host = server.HostIPv6
+		}
 	}
 	port := node.Port
 	if nc != nil && nc.ForwardEnabled && nc.ForwardHost != "" {

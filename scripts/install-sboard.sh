@@ -11,7 +11,7 @@
 # 用法: 
 #   curl -fsSL https://raw.githubusercontent.com/amuae/sboard/main/scripts/install-sboard.sh | bash
 #   curl -fsSL <url> | bash -s -- --port 9000 --user admin --pass mypassword
-#   ./install-sboard.sh --path /opt/sboard --port 8080 --user admin --pass admin123
+#   ./install-sboard.sh --path /opt/sboard --port 8080 --user admin --pass your-password
 
 set -e
 
@@ -119,6 +119,11 @@ generate_random_port() {
             return
         fi
     done
+}
+
+# 生成非交互安装使用的随机管理员密码
+generate_random_password() {
+    LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 20
 }
 
 # 检查域名是否为开发者域名
@@ -231,7 +236,8 @@ interactive_config() {
             ADMIN_USER="admin"
         fi
         if [[ -z "$ADMIN_PASS" ]]; then
-            ADMIN_PASS="admin123"
+            ADMIN_PASS=$(generate_random_password)
+            info "已生成随机管理员密码，安装完成后会显示"
         fi
         return
     fi
@@ -546,10 +552,13 @@ EOF
 # 初始化管理员账户
 init_admin() {
     info "初始化管理员账户..."
-    
+
     # 运行 sboard 初始化管理员
-    "${INSTALL_DIR}/${BINARY_NAME}" -d "${DATA_DIR}" -init-admin -admin-user "${ADMIN_USER}" -admin-pass "${ADMIN_PASS}" 2>/dev/null || true
-    
+    local output
+    if ! output=$("${INSTALL_DIR}/${BINARY_NAME}" -d "${DATA_DIR}" -init-admin -admin-user "${ADMIN_USER}" -admin-pass "${ADMIN_PASS}" 2>&1); then
+        error "管理员账户初始化失败: ${output}"
+    fi
+
     success "管理员账户初始化完成"
 }
 
@@ -1088,20 +1097,37 @@ do_update() {
     detect_arch
     detect_init_system
     
-    stop_service
-    
-    # 备份当前版本
-    if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
-        mv "${INSTALL_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}.bak"
-    fi
-    
     install_deps
-    download_and_install
+
+    # 下载失败或新版本无法启动时保留旧二进制并自动回滚，避免更新流程
+    # 把正在运行的面板留在停机状态。
+    stop_service
+    local backup_path="${INSTALL_DIR}/${BINARY_NAME}.bak"
+    rm -f "$backup_path"
+    if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
+        mv "${INSTALL_DIR}/${BINARY_NAME}" "$backup_path"
+    fi
+
+    if ! (download_and_install); then
+        rm -f "${INSTALL_DIR}/${BINARY_NAME}"
+        if [[ -f "$backup_path" ]]; then
+            mv "$backup_path" "${INSTALL_DIR}/${BINARY_NAME}"
+        fi
+        start_service || true
+        error "下载新版本失败，已恢复旧版本"
+    fi
     
     # 更新 sboard 管理命令
     create_sboard_command
     
-    start_service
+    if ! start_service; then
+        rm -f "${INSTALL_DIR}/${BINARY_NAME}"
+        if [[ -f "$backup_path" ]]; then
+            mv "$backup_path" "${INSTALL_DIR}/${BINARY_NAME}"
+        fi
+        start_service || true
+        error "新版本启动失败，已恢复旧版本"
+    fi
     
     # 删除备份
     rm -f "${INSTALL_DIR}/${BINARY_NAME}.bak"

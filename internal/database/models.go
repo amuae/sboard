@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Admin 管理员表
@@ -100,6 +101,74 @@ func (u *ProxyUser) GetExtraUUID(index int) string {
 	return ""
 }
 
+// EnsureExtraUUID 获取指定槽位的额外 UUID；槽位为空时自动生成并持久化。
+// 落地出站订阅和服务器路由都依赖该 UUID，因此不能只返回空值跳过节点。
+func (u *ProxyUser) EnsureExtraUUID(slot int) (string, error) {
+	if slot < 1 || slot > 10 {
+		return "", fmt.Errorf("slot must be between 1 and 10, got %d", slot)
+	}
+
+	u.ensureExtraUUIDsLoaded()
+	if value := u.extraUUIDs[slot-1]; value != "" {
+		return value, nil
+	}
+	if u.ID == 0 {
+		value := uuid.New().String()
+		u.extraUUIDs[slot-1] = value
+		setLegacyExtraUUID(u, slot, value)
+		return value, nil
+	}
+
+	// Keep lookup, upsert, and legacy-column synchronization in one transaction.
+	// The conflict clause makes concurrent first-time subscriptions converge on
+	// the same normalized record instead of returning a unique-index error.
+	var value string
+	db := GetDB()
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var existing UserExtraUUID
+		result := tx.Where("user_id = ? AND slot = ?", u.ID, slot).First(&existing)
+		switch {
+		case result.Error == nil:
+			value = existing.UUID
+			if value == "" {
+				value = uuid.New().String()
+				if err := tx.Model(&existing).Update("uuid", value).Error; err != nil {
+					return err
+				}
+			}
+		case result.Error == gorm.ErrRecordNotFound:
+			candidate := uuid.New().String()
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "user_id"}, {Name: "slot"}},
+				DoNothing: true,
+			}).Create(&UserExtraUUID{UserID: u.ID, Slot: slot, UUID: candidate}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("user_id = ? AND slot = ?", u.ID, slot).First(&existing).Error; err != nil {
+				return err
+			}
+			value = existing.UUID
+			if value == "" {
+				value = candidate
+				if err := tx.Model(&existing).Update("uuid", value).Error; err != nil {
+					return err
+				}
+			}
+		default:
+			return result.Error
+		}
+
+		return updateLegacyExtraUUID(tx, u.ID, slot, value)
+	})
+	if err != nil {
+		return "", err
+	}
+
+	u.extraUUIDs[slot-1] = value
+	setLegacyExtraUUID(u, slot, value)
+	return value, nil
+}
+
 // GetAllExtraUUIDs 获取所有额外UUID列表 (非空的)
 func (u *ProxyUser) GetAllExtraUUIDs() []string {
 	u.ensureExtraUUIDsLoaded()
@@ -134,7 +203,10 @@ func (u *ProxyUser) ensureExtraUUIDsLoaded() {
 	var records []UserExtraUUID
 	if err := db.Where("user_id = ?", u.ID).Order("slot asc").Find(&records).Error; err == nil {
 		for _, r := range records {
-			if r.Slot >= 1 && r.Slot <= 10 {
+			// An empty normalized row must not erase a usable legacy value.
+			// Startup migration normally repairs these rows, but keeping the
+			// fallback here also makes reads safe during partial migrations.
+			if r.Slot >= 1 && r.Slot <= 10 && r.UUID != "" {
 				u.extraUUIDs[r.Slot-1] = r.UUID
 			}
 		}
@@ -149,56 +221,81 @@ func (u *ProxyUser) SetExtraUUID(slot int, val string) error {
 
 	u.ensureExtraUUIDsLoaded()
 
-	// 懒加载：如果槽位尚无 UUID 且调用方未提供，自动生成
-	if u.extraUUIDs[slot-1] == "" && val == "" {
-		val = uuid.New().String()
-	}
-
-	if val != "" {
-		u.extraUUIDs[slot-1] = val
-	}
-
-	// 向后兼容：同步到 UUID1-UUID10 列
-	switch slot {
-	case 1:
-		u.UUID1 = val
-	case 2:
-		u.UUID2 = val
-	case 3:
-		u.UUID3 = val
-	case 4:
-		u.UUID4 = val
-	case 5:
-		u.UUID5 = val
-	case 6:
-		u.UUID6 = val
-	case 7:
-		u.UUID7 = val
-	case 8:
-		u.UUID8 = val
-	case 9:
-		u.UUID9 = val
-	case 10:
-		u.UUID10 = val
+	// 懒加载：如果槽位尚无 UUID 且调用方未提供，自动生成。空值不会
+	// 清除已有 UUID，避免一次空的部分更新破坏现有订阅认证。
+	if val == "" {
+		val = u.extraUUIDs[slot-1]
+		if val == "" {
+			val = uuid.New().String()
+		}
 	}
 
 	// 尚未持久化时仅更新内存缓存
 	if u.ID == 0 {
+		u.extraUUIDs[slot-1] = val
+		setLegacyExtraUUID(u, slot, val)
 		return nil
 	}
 
-	// 写入 UserExtraUUID 表（upsert）
 	db := GetDB()
-	var existing UserExtraUUID
-	if err := db.Where("user_id = ? AND slot = ?", u.ID, slot).First(&existing).Error; err == nil {
-		existing.UUID = val
-		return db.Save(&existing).Error
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "slot"}},
+			DoUpdates: clause.AssignmentColumns([]string{"uuid"}),
+		}).Create(&UserExtraUUID{UserID: u.ID, Slot: slot, UUID: val}).Error; err != nil {
+			return err
+		}
+		return updateLegacyExtraUUID(tx, u.ID, slot, val)
+	}); err != nil {
+		return err
 	}
-	return db.Create(&UserExtraUUID{
-		UserID: u.ID,
-		Slot:   slot,
-		UUID:   val,
-	}).Error
+
+	u.extraUUIDs[slot-1] = val
+	setLegacyExtraUUID(u, slot, val)
+	return nil
+}
+
+// setLegacyExtraUUID updates the in-memory compatibility column.
+func setLegacyExtraUUID(u *ProxyUser, slot int, value string) {
+	switch slot {
+	case 1:
+		u.UUID1 = value
+	case 2:
+		u.UUID2 = value
+	case 3:
+		u.UUID3 = value
+	case 4:
+		u.UUID4 = value
+	case 5:
+		u.UUID5 = value
+	case 6:
+		u.UUID6 = value
+	case 7:
+		u.UUID7 = value
+	case 8:
+		u.UUID8 = value
+	case 9:
+		u.UUID9 = value
+	case 10:
+		u.UUID10 = value
+	}
+}
+
+// updateLegacyExtraUUID keeps the old UUID1-UUID10 columns in sync with the
+// normalized UserExtraUUID table for older readers and future migrations.
+func updateLegacyExtraUUID(tx *gorm.DB, userID uint, slot int, value string) error {
+	column, ok := legacyExtraUUIDColumn(slot)
+	if !ok {
+		return fmt.Errorf("slot must be between 1 and 10, got %d", slot)
+	}
+	return tx.Model(&ProxyUser{}).Where("id = ?", userID).Update(column, value).Error
+}
+
+func legacyExtraUUIDColumn(slot int) (string, bool) {
+	if slot < 1 || slot > 10 {
+		return "", false
+	}
+	return fmt.Sprintf("uuid%d", slot), true
 }
 
 // UserExtraUUID 用户额外 UUID 关联表（替代硬编码的 UUID1-UUID10）
@@ -241,9 +338,9 @@ type InboundNode struct {
 	Flow string `gorm:"size:50" json:"flow"`
 
 	// Shadowsocks 配置
-	SsMethod   string `gorm:"size:50" json:"ss_method"`    // aes-256-gcm/chacha20-ietf-poly1305/2022-blake3-aes-256-gcm
-	SsPassword string `gorm:"size:100" json:"ss_password"` // 随机生成的密码
-	SsObfsMode string `gorm:"size:20" json:"ss_obfs_mode"` // tls/http (reF1nd sing-box SS SNI伪装)
+	SsMethod   string `gorm:"size:50" json:"ss_method"`     // aes-256-gcm/chacha20-ietf-poly1305/2022-blake3-aes-256-gcm
+	SsPassword string `gorm:"size:100" json:"ss_password"`  // 随机生成的密码
+	SsObfsMode string `gorm:"size:20" json:"ss_obfs_mode"`  // tls/http (reF1nd sing-box SS SNI伪装)
 	SsObfsHost string `gorm:"size:100" json:"ss_obfs_host"` // SNI伪装域名
 
 	// Hysteria2 配置
@@ -265,11 +362,11 @@ type InboundNode struct {
 // ExternalNode 外部节点（第三方分享的代理节点）
 type ExternalNode struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
-	Name     string `gorm:"size:100;not null" json:"name"`     // 用户可见的节点名
+	Name     string `gorm:"size:100;not null" json:"name"`    // 用户可见的节点名
 	Protocol string `gorm:"size:20;not null" json:"protocol"` // trojan/vless/vmess/shadowsocks/hysteria2/anytls
 	Host     string `gorm:"size:200;not null" json:"host"`    // 服务器地址
 	Port     int    `gorm:"not null" json:"port"`
-	UUID     string `gorm:"size:100" json:"uuid"`             // 用户名/UUID/密码(trojan)
+	UUID     string `gorm:"size:100" json:"uuid"` // 用户名/UUID/密码(trojan)
 
 	// TLS
 	TlsEnabled bool   `json:"tls_enabled"`
@@ -306,10 +403,10 @@ type ExternalNode struct {
 	Hy2ObfsPassword string `gorm:"size:100" json:"hy2_obfs_password"`
 
 	// 控制字段
-	Level     int    `gorm:"default:1" json:"level"`          // 使用等级（1/2/3）
-	Enabled   bool   `gorm:"default:true" json:"enabled"`     // 是否启用
-	SortOrder int    `gorm:"default:0" json:"sort_order"`     // 排序
-	Country   string `gorm:"size:10" json:"country"`          // 国家代码（用于显示旗帜）
+	Level     int    `gorm:"default:1" json:"level"`      // 使用等级（1/2/3）
+	Enabled   bool   `gorm:"default:true" json:"enabled"` // 是否启用
+	SortOrder int    `gorm:"default:0" json:"sort_order"` // 排序
+	Country   string `gorm:"size:10" json:"country"`      // 国家代码（用于显示旗帜）
 	Notes     string `gorm:"type:text" json:"notes"`
 
 	CreatedAt time.Time      `json:"created_at"`
@@ -361,7 +458,7 @@ type NodeUserRelation struct {
 type Server struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`
 	Name      string `gorm:"size:100;not null" json:"name"`
-	Host      string `gorm:"size:100" json:"host"` // 由 Agent 上报的服务器 IPv4
+	Host      string `gorm:"size:100" json:"host"`      // 由 Agent 上报的服务器 IPv4
 	HostIPv6  string `gorm:"size:100" json:"host_ipv6"` // 由 Agent 上报的服务器 IPv6
 	Port      int    `gorm:"default:22" json:"port"`
 	Category  string `gorm:"size:20;not null;default:direct" json:"category"` // direct/relay/home

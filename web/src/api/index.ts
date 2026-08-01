@@ -34,8 +34,20 @@ api.interceptors.response.use(
 )
 
 // ============ 认证相关 ============
+export interface ApiResponse<T> {
+  success: boolean
+  data: T
+  message?: string
+}
+
+interface OAuthProvidersResponse {
+  success: boolean
+  data: OAuthProviderConfig[]
+  disable_password_login: boolean
+}
+
 export const login = (username: string, password: string) => {
-  return api.post('/auth/login', { username, password })
+  return api.post<ApiResponse<{ token: string; username: string }>>('/auth/login', { username, password })
 }
 
 export const logout = () => {
@@ -44,11 +56,11 @@ export const logout = () => {
 
 // OAuth 相关
 export const getOAuthProviders = () => {
-  return api.get('/auth/oauth/providers')
+  return api.get<OAuthProvidersResponse>('/auth/oauth/providers')
 }
 
 export const getGitHubLoginUrl = (authorizeMode: boolean = false) => {
-  return api.get('/auth/github/login', {
+  return api.get<ApiResponse<{ url: string }>>('/auth/github/login', {
     params: { authorize: authorizeMode }
   })
 }
@@ -66,7 +78,7 @@ export interface OAuthProviderConfig {
 }
 
 export const getOAuthProvidersAdmin = () => {
-  return api.get<{ success: boolean; data: OAuthProviderConfig[]; disable_password_login: boolean }>('/oauth/providers')
+	return api.get<OAuthProvidersResponse>('/oauth/providers')
 }
 
 export const getOAuthProvider = (name: string) => {
@@ -116,16 +128,29 @@ export interface User {
   updated_at: string
 }
 
+interface UsersResponse {
+  users: User[]
+  grouped: {
+    level_1: User[]
+    level_2: User[]
+    level_3: User[]
+  }
+  stats: {
+    total: number
+    enabled: number
+  }
+}
+
 export const getUsers = () => {
-  return api.get('/users')
+	return api.get<ApiResponse<UsersResponse>>('/users')
 }
 
 export const createUser = (user: Partial<User>) => {
-  return api.post<User>('/users', user)
+	return api.post<ApiResponse<User>>('/users', user)
 }
 
 export const updateUser = (id: number, user: Partial<User>) => {
-  return api.put<User>(`/users/${id}`, user)
+	return api.put<ApiResponse<User>>(`/users/${id}`, user)
 }
 
 export const deleteUser = (id: number) => {
@@ -169,13 +194,6 @@ export interface Node {
   updated_at: string
 }
 
-// API 响应类型
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-  message?: string
-}
-
 interface NodesResponse {
   nodes: Node[]
   stats: {
@@ -202,15 +220,19 @@ export const deleteNode = (id: number) => {
 }
 
 export const generateRealityKeys = () => {
-  return api.post<{ private_key: string; public_key: string }>('/nodes/generate-reality-keys')
+  return api.post<ApiResponse<{
+    private_key: string
+    public_key: string
+    short_id: string
+  }>>('/nodes/generate-reality-keys')
 }
 
 export const getNodeConfig = () => {
-  return api.get<any>('/nodes/config')
+	return api.get<ApiResponse<{ type: string; config: string }>>('/nodes/config')
 }
 
 export const getConfig = (type: string) => {
-  return api.get(`/config/preview?type=${type}`)
+	return api.get<ApiResponse<{ type: string; server?: string; config: string }>>(`/config/preview?type=${type}`)
 }
 
 // ============ 服务器管理 ============
@@ -248,6 +270,19 @@ export interface Server {
   last_deploy_at: string
   created_at: string
   updated_at: string
+}
+
+interface ServersResponse {
+  servers: Server[]
+  grouped: {
+    direct: Server[]
+    relay: Server[]
+    home: Server[]
+  }
+  stats: {
+    total: number
+    enabled: number
+  }
 }
 
 export interface NodeConfig {
@@ -289,7 +324,7 @@ export interface NodeConfig {
 }
 
 export const getServers = () => {
-  return api.get<Server[]>('/servers')
+	return api.get<ApiResponse<ServersResponse>>('/servers')
 }
 
 // 批量获取服务器状态（用于实时刷新）
@@ -306,15 +341,15 @@ export interface ServerStatus {
 }
 
 export const getServersStatus = () => {
-  return api.get<{ statuses: ServerStatus[] }>('/servers/status')
+	return api.get<ApiResponse<{ statuses: ServerStatus[] }>>('/servers/status')
 }
 
 export const createServer = (server: Partial<Server>) => {
-  return api.post<Server>('/servers', server)
+	return api.post<ApiResponse<Server>>('/servers', server)
 }
 
 export const updateServer = (id: number, server: Partial<Server>) => {
-  return api.put<Server>(`/servers/${id}`, server)
+	return api.put<ApiResponse<Server>>(`/servers/${id}`, server)
 }
 
 export const deleteServer = (id: number) => {
@@ -326,11 +361,11 @@ export const reorderServers = (ids: number[]) => {
 }
 
 export const getNodeConfigs = (serverId: number) => {
-  return api.get<NodeConfig[]>(`/servers/${serverId}/node-configs`)
+	return api.get<ApiResponse<Record<string, NodeConfig>>>(`/servers/${serverId}/node-configs`)
 }
 
 export const saveNodeConfig = (serverId: number, nodeId: number, config: Partial<NodeConfig>) => {
-  return api.post<NodeConfig>(`/servers/${serverId}/node-configs/${nodeId}`, config)
+	return api.post<ApiResponse<unknown>>(`/servers/${serverId}/node-configs/${nodeId}`, config)
 }
 
 export const deleteNodeConfig = (serverId: number, nodeId: number) => {
@@ -373,15 +408,15 @@ export interface ServerOutbound {
 }
 
 export const getServerOutbounds = (serverId: number) => {
-  return api.get<ServerOutbound[]>(`/servers/${serverId}/outbounds`)
+	return api.get<ApiResponse<ServerOutbound[]>>(`/servers/${serverId}/outbounds`)
 }
 
 export const createServerOutbound = (serverId: number, outbound: Partial<ServerOutbound>) => {
-  return api.post<ServerOutbound>(`/servers/${serverId}/outbounds`, outbound)
+	return api.post<ApiResponse<ServerOutbound>>(`/servers/${serverId}/outbounds`, outbound)
 }
 
 export const updateServerOutbound = (serverId: number, slot: number, outbound: Partial<ServerOutbound>) => {
-  return api.put<ServerOutbound>(`/servers/${serverId}/outbounds/${slot}`, outbound)
+	return api.put<ApiResponse<ServerOutbound>>(`/servers/${serverId}/outbounds/${slot}`, outbound)
 }
 
 export const deleteServerOutbound = (serverId: number, slot: number) => {
@@ -389,27 +424,27 @@ export const deleteServerOutbound = (serverId: number, slot: number) => {
 }
 
 export const toggleServerOutbound = (serverId: number, slot: number) => {
-  return api.post<ServerOutbound>(`/servers/${serverId}/outbounds/${slot}/toggle`)
+	return api.post<ApiResponse<ServerOutbound>>(`/servers/${serverId}/outbounds/${slot}/toggle`)
 }
 
 // 部署相关
 export const deployServer = (serverId: number, type: string) => {
-  return api.post(`/servers/${serverId}/deploy`, { type })
+	return api.post<ApiResponse<{ output?: string; data?: unknown }>>(`/servers/${serverId}/deploy`, { type })
 }
 
 // 全部部署（向所有存活 Agent 发送部署核心指令）
 export const deployAll = () => {
-  return api.post('/servers/deploy-all')
+	return api.post<ApiResponse<{ message: string; total: number }>>('/servers/deploy-all')
 }
 
 // Agent 更新（向所有存活 Agent 发送自我更新指令）
 export const updateAllAgents = () => {
-  return api.post('/servers/update-agents')
+	return api.post<ApiResponse<{ message: string; total: number }>>('/servers/update-agents')
 }
 
 // Agent 相关
 export const regenerateAgentToken = (serverId: number) => {
-  return api.post(`/servers/${serverId}/agent/regenerate-token`)
+	return api.post<ApiResponse<{ agent_token: string }>>(`/servers/${serverId}/agent/regenerate-token`)
 }
 
 export const sendAgentCommand = (serverId: number, command: string) => {
@@ -417,7 +452,7 @@ export const sendAgentCommand = (serverId: number, command: string) => {
 }
 
 export const getAgentStatus = (serverId: number) => {
-  return api.get(`/servers/${serverId}/agent/status`)
+	return api.get<ApiResponse<{ online: boolean; status: unknown }>>(`/servers/${serverId}/agent/status`)
 }
 
 // ============ 订阅配置相关 ============
@@ -491,9 +526,9 @@ export interface ExternalNode {
   updated_at: string
 }
 
-export const getExternalNodes = () => api.get('/external-nodes')
-export const createExternalNode = (data: Partial<ExternalNode>) => api.post('/external-nodes', data)
-export const updateExternalNode = (id: number, data: Partial<ExternalNode>) => api.put(`/external-nodes/${id}`, data)
+export const getExternalNodes = () => api.get<ApiResponse<ExternalNode[]>>('/external-nodes')
+export const createExternalNode = (data: Partial<ExternalNode>) => api.post<ApiResponse<ExternalNode>>('/external-nodes', data)
+export const updateExternalNode = (id: number, data: Partial<ExternalNode>) => api.put<ApiResponse<ExternalNode>>(`/external-nodes/${id}`, data)
 export const deleteExternalNode = (id: number) => api.delete(`/external-nodes/${id}`)
 
 export default api

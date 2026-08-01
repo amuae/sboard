@@ -99,7 +99,7 @@ function Show-Help {
     Write-Host "  -Domain <domain>    面板入口域名"
     Write-Host "  -Port <port>        监听端口 (默认: 8080)"
     Write-Host "  -User <user>        管理员用户名 (默认: admin)"
-    Write-Host "  -Pass <pass>        管理员密码 (默认: admin123)"
+    Write-Host "  -Pass <pass>        管理员密码 (未指定时随机生成)"
     Write-Host "  -Dev                强制使用预发布版本"
     Write-Host "  -NoInteractive      非交互模式"
     Write-Host ""
@@ -175,11 +175,22 @@ function Get-Architecture {
 function New-RandomString {
     param([int]$Length = 32)
     $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    $result = ""
-    for ($i = 0; $i -lt $Length; $i++) {
-        $result += $chars[(Get-Random -Maximum $chars.Length)]
+
+    $result = New-Object System.Text.StringBuilder
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $bytes = New-Object byte[] 1
+        while ($result.Length -lt $Length) {
+            $rng.GetBytes($bytes)
+            # Discard the biased tail before mapping a byte to the charset.
+            if ($bytes[0] -lt (256 - (256 % $chars.Length))) {
+                [void]$result.Append($chars[$bytes[0] % $chars.Length])
+            }
+        }
+    } finally {
+        $rng.Dispose()
     }
-    return $result
+    return $result.ToString()
 }
 
 # 检查是否已安装
@@ -761,13 +772,12 @@ function Initialize-Admin {
     $binaryPath = Join-Path $InstallDir $BINARY_NAME
     $dataDir = Join-Path $InstallDir "data"
     
-    # 运行 sboard 初始化管理员
-    try {
-        $result = & $binaryPath -d $dataDir -init-admin -admin-user $User -admin-pass $Pass 2>&1
-        Write-Success "管理员账户初始化完成"
-    } catch {
-        Write-Warn "管理员账户初始化失败: $_"
+    # 运行 sboard 初始化管理员，并检查原生进程退出码。
+    $result = & $binaryPath -d $dataDir -init-admin -admin-user $User -admin-pass $Pass 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "管理员账户初始化失败: $result"
     }
+    Write-Success "管理员账户初始化完成"
 }
 
 # 创建 Windows 服务
@@ -1004,7 +1014,10 @@ function Install-Sboard {
     } else {
         # 非交互模式，使用默认值
         if (-not $User) { $script:User = "admin" }
-        if (-not $Pass) { $script:Pass = "admin123" }
+        if (-not $Pass) {
+            $script:Pass = New-RandomString -Length 20
+            Write-Info "已生成随机管理员密码，安装完成后会显示"
+        }
     }
     
     # 检测架构

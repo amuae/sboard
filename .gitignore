@@ -1,8 +1,9 @@
-build/
+/build/
+/cmd/sboard/web/
 cmd/agent/embed/configs/sing-box/sing-box
 *.exe
 web/node_modules/
-sboard
-sboard-agent
+/sboard
+/sboard-agent
 CODE_REVIEW.md
-build
+/build

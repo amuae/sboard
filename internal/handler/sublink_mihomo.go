@@ -51,7 +51,10 @@ func generateMihomoSubscription(servers []ServerWithNodes, nodeConfigs map[uint]
 
 			// 生成落地出站节点（使用额外 UUID）
 			for _, outbound := range swn.Outbounds {
-				extraUUID := user.GetExtraUUID(outbound.Slot)
+				extraUUID, err := user.EnsureExtraUUID(outbound.Slot)
+				if err != nil {
+					return "", fmt.Errorf("生成落地出站 UUID 失败: %w", err)
+				}
 				if extraUUID == "" {
 					continue
 				}

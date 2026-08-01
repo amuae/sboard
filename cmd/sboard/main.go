@@ -46,8 +46,8 @@ func main() {
 	flag.StringVar(&dataDir, "d", "data", "数据目录")
 	flag.BoolVar(&initAdmin, "init-admin", false, "初始化管理员账户后退出")
 	flag.StringVar(&initAdminUser, "admin-user", "admin", "管理员用户名")
-	flag.StringVar(&initAdminPass, "admin-pass", "admin123", "管理员密码")
-	flag.BoolVar(&permitLogin, "permit-login", false, "强制允许密码登录（修改配置文件后退出）")
+	flag.StringVar(&initAdminPass, "admin-pass", "", "管理员密码（初始化时必填，至少 6 位）")
+	flag.BoolVar(&permitLogin, "permit-login", false, "强制允许密码登录（修改数据库配置后退出）")
 	flag.Parse()
 
 	if showVersion {
@@ -73,23 +73,28 @@ func main() {
 
 	// 初始化管理员账户模式
 	if initAdmin {
+		if len(initAdminPass) < 6 {
+			log.Fatal("管理员密码必须通过 -admin-pass 指定，且长度至少为 6 位")
+		}
 		initAdminAccount(initAdminUser, initAdminPass)
 		os.Exit(0)
 	}
 
 	// 强制允许密码登录模式
 	if permitLogin {
-		enablePasswordLogin(configPath)
+		if err := enablePasswordLogin(); err != nil {
+			log.Fatalf("启用密码登录失败: %v", err)
+		}
+		log.Printf("密码登录已重新启用")
 		os.Exit(0)
 	}
 
 	log.Printf("SBoard %s 启动中...", Version)
 
-	// 加载配置
-	cfg, err := config.Load(configPath)
+	// 加载配置；首次启动时持久化默认配置，避免 JWT 密钥随重启变化。
+	cfg, err := config.LoadOrCreate(configPath)
 	if err != nil {
-		log.Printf("配置文件不存在，使用默认配置")
-		cfg = config.Default()
+		log.Fatalf("加载配置失败: %v", err)
 	}
 
 	// 命令行参数覆盖
@@ -166,21 +171,8 @@ func initAdminAccount(username, password string) {
 	log.Printf("管理员账户 '%s' 创建成功", username)
 }
 
-// enablePasswordLogin 强制允许密码登录
-func enablePasswordLogin(configPath string) {
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		log.Fatalf("加载配置文件失败: %v", err)
-	}
-
-	if !cfg.OAuth.DisablePasswordLogin {
-		log.Printf("密码登录已经是启用状态")
-		return
-	}
-
-	cfg.OAuth.DisablePasswordLogin = false
-	if err := cfg.Save(configPath); err != nil {
-		log.Fatalf("保存配置文件失败: %v", err)
-	}
-	log.Printf("密码登录已重新启用，请重启服务使配置生效")
+// enablePasswordLogin 强制允许密码登录。
+// Web 登录读取的是数据库中的系统配置，因此恢复命令必须修改同一配置源。
+func enablePasswordLogin() error {
+	return database.SetDisablePasswordLogin(false)
 }

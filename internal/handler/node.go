@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -224,6 +223,25 @@ func (s *Server) handleCreateNode(c *gin.Context) {
 	if req.KeyPath == "" {
 		req.KeyPath = "server.key"
 	}
+	if req.RealityEnabled {
+		req.TlsEnabled = true
+		req.RealityServer = strings.TrimSpace(req.RealityServer)
+		req.RealityPubkey = strings.TrimSpace(req.RealityPubkey)
+		req.RealityPrivkey = strings.TrimSpace(req.RealityPrivkey)
+		req.RealityShortId = strings.TrimSpace(req.RealityShortId)
+		if req.RealityServer == "" || req.RealityPubkey == "" || req.RealityPrivkey == "" {
+			errorJSON(c, http.StatusBadRequest, "启用 Reality 时必须填写握手服务器、公钥和私钥")
+			return
+		}
+		if !isValidRealityKey(req.RealityPubkey) || !isValidRealityKey(req.RealityPrivkey) {
+			errorJSON(c, http.StatusBadRequest, "Reality 公钥和私钥必须是 32 字节 Base64 密钥")
+			return
+		}
+		if req.RealityShortId != "" && !isValidRealityShortID(req.RealityShortId) {
+			errorJSON(c, http.StatusBadRequest, "Reality short_id 必须是最多 16 位十六进制字符串")
+			return
+		}
+	}
 	if req.WsPath == "" {
 		req.WsPath = "/"
 	}
@@ -354,6 +372,25 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误")
 		return
 	}
+	if req.RealityEnabled {
+		req.TlsEnabled = true
+		req.RealityServer = strings.TrimSpace(req.RealityServer)
+		req.RealityPubkey = strings.TrimSpace(req.RealityPubkey)
+		req.RealityPrivkey = strings.TrimSpace(req.RealityPrivkey)
+		req.RealityShortId = strings.TrimSpace(req.RealityShortId)
+		if req.RealityServer == "" || req.RealityPubkey == "" || req.RealityPrivkey == "" {
+			errorJSON(c, http.StatusBadRequest, "启用 Reality 时必须填写握手服务器、公钥和私钥")
+			return
+		}
+		if !isValidRealityKey(req.RealityPubkey) || !isValidRealityKey(req.RealityPrivkey) {
+			errorJSON(c, http.StatusBadRequest, "Reality 公钥和私钥必须是 32 字节 Base64 密钥")
+			return
+		}
+		if req.RealityShortId != "" && !isValidRealityShortID(req.RealityShortId) {
+			errorJSON(c, http.StatusBadRequest, "Reality short_id 必须是最多 16 位十六进制字符串")
+			return
+		}
+	}
 
 	// 跟踪配置相关字段变化（Notes/CertPath/KeyPath 不参与配置生成，忽略）
 	configChanged := false
@@ -442,8 +479,11 @@ func (s *Server) handleUpdateNode(c *gin.Context) {
 	}
 	node.RealityPrivkey = req.RealityPrivkey
 	newShortId := req.RealityShortId
-	if req.RealityEnabled && req.RealityShortId == "" && node.RealityShortId == "" {
-		newShortId = generateRandomShortId()
+	if req.RealityEnabled && newShortId == "" {
+		newShortId = node.RealityShortId
+		if newShortId == "" {
+			newShortId = generateRandomShortId()
+		}
 	}
 	if newShortId != node.RealityShortId {
 		configChanged = true
@@ -572,15 +612,11 @@ func (s *Server) handleDeleteNode(c *gin.Context) {
 
 // handleGenerateRealityKeys 生成 Reality 密钥对
 func (s *Server) handleGenerateRealityKeys(c *gin.Context) {
-	// 优先使用 sing-box 命令生成
-	privkey, pubkey, err := generateRealityKeysViaSingBox()
+	// 使用进程内 X25519 生成，避免依赖外部 sing-box 命令或其 PATH 配置。
+	privkey, pubkey, err := generateX25519KeyPair()
 	if err != nil {
-		// 如果 sing-box 不可用，使用 Go 原生生成
-		privkey, pubkey, err = generateX25519KeyPair()
-		if err != nil {
-			errorJSON(c, http.StatusInternalServerError, "生成密钥对失败")
-			return
-		}
+		errorJSON(c, http.StatusInternalServerError, "生成密钥对失败")
+		return
 	}
 
 	// 生成 short_id (8字节随机十六进制)
@@ -596,31 +632,6 @@ func (s *Server) handleGenerateRealityKeys(c *gin.Context) {
 		"public_key":  pubkey,
 		"short_id":    shortId,
 	})
-}
-
-// generateRealityKeysViaSingBox 使用 sing-box 生成 Reality 密钥对
-func generateRealityKeysViaSingBox() (privkey, pubkey string, err error) {
-	cmd := exec.Command("sing-box", "generate", "reality-keypair")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", "", err
-	}
-
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "PrivateKey:") {
-			privkey = strings.TrimSpace(strings.TrimPrefix(line, "PrivateKey:"))
-		} else if strings.HasPrefix(line, "PublicKey:") {
-			pubkey = strings.TrimSpace(strings.TrimPrefix(line, "PublicKey:"))
-		}
-	}
-
-	if privkey == "" || pubkey == "" {
-		return "", "", exec.ErrNotFound
-	}
-
-	return privkey, pubkey, nil
 }
 
 // generateX25519KeyPair 生成 X25519 密钥对
@@ -681,6 +692,29 @@ func generateRandomShortId() string {
 	bytes := make([]byte, length)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+func isValidRealityKey(value string) bool {
+	for _, encoding := range []*base64.Encoding{
+		base64.RawURLEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.StdEncoding,
+	} {
+		decoded, err := encoding.DecodeString(value)
+		if err == nil && len(decoded) == 32 {
+			return true
+		}
+	}
+	return false
+}
+
+func isValidRealityShortID(value string) bool {
+	if value == "" || len(value) > 16 || len(value)%2 != 0 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 // generateRandomPassword 生成随机密码（用于 Shadowsocks）

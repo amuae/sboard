@@ -281,7 +281,11 @@ function getUsersByLevel(level: number) {
 }
 
 function isExpired(user: User) {
-  return new Date(user.expiry_date) < new Date()
+  const today = new Date()
+  const todayString = [today.getFullYear(), today.getMonth() + 1, today.getDate()]
+    .map((value, index) => index === 0 ? String(value) : String(value).padStart(2, '0'))
+    .join('-')
+  return Boolean(user.expiry_date) && user.expiry_date < todayString
 }
 
 function toggleDropdown(userId: number) {

@@ -67,13 +67,13 @@ func (c *AgentConnection) IsAlive() bool {
 
 // AgentHub Agent 连接管理器
 type AgentHub struct {
-	agents       map[string]*AgentConnection // agentID -> connection
-	serverMap    map[uint]*AgentConnection   // serverID -> connection
-	mu           sync.RWMutex
-	msgChan      chan *AgentMessage
-	pendingReq   map[string]chan *agent.Message // msgID -> response channel
-	pendingMu    sync.RWMutex
-	syncDebounce *time.Timer // 配置同步防抖定时器
+	agents         map[string]*AgentConnection // agentID -> connection
+	serverMap      map[uint]*AgentConnection   // serverID -> connection
+	mu             sync.RWMutex
+	msgChan        chan *AgentMessage
+	pendingReq     map[string]chan *agent.Message // msgID -> response channel
+	pendingMu      sync.RWMutex
+	syncDebounce   *time.Timer // 配置同步防抖定时器
 	syncDebounceMu sync.Mutex
 }
 
@@ -750,11 +750,9 @@ func (s *Server) handleDeployCoreToAgent(c *gin.Context) {
 
 // 辅助函数
 func parseUint(s string) uint64 {
-	var n uint64
-	for _, c := range s {
-		if c >= '0' && c <= '9' {
-			n = n*10 + uint64(c-'0')
-		}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0
 	}
 	return n
 }

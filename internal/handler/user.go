@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,7 +17,7 @@ type CreateUserRequest struct {
 	UUID         string `json:"uuid"`
 	Level        int    `json:"level"`
 	ExpiryDate   string `json:"expiry_date" binding:"required"`
-	Enabled      int    `json:"enabled"`
+	Enabled      *int   `json:"enabled"`
 	TrafficLimit int64  `json:"traffic_limit"`
 	DnsResolve   string `json:"dns_resolve"`
 	Notes        string `json:"notes"`
@@ -24,14 +25,31 @@ type CreateUserRequest struct {
 
 // UpdateUserRequest 更新用户请求
 type UpdateUserRequest struct {
-	Name         string `json:"name"`
-	Level        int    `json:"level"`
-	ExpiryDate   string `json:"expiry_date"`
-	Enabled      int    `json:"enabled"`
-	TrafficLimit int64  `json:"traffic_limit"`
-	TrafficUsed  int64  `json:"traffic_used"`
-	DnsResolve   string `json:"dns_resolve"`
-	Notes        string `json:"notes"`
+	Name         string  `json:"name"`
+	Level        int     `json:"level"`
+	ExpiryDate   string  `json:"expiry_date"`
+	Enabled      *int    `json:"enabled"`
+	TrafficLimit *int64  `json:"traffic_limit"`
+	TrafficUsed  *int64  `json:"traffic_used"`
+	DnsResolve   string  `json:"dns_resolve"`
+	Notes        *string `json:"notes"`
+}
+
+func validateEnabled(value *int) error {
+	if value != nil && *value != 0 && *value != 1 {
+		return fmt.Errorf("enabled 必须是 0 或 1")
+	}
+	return nil
+}
+
+func validateExpiryDate(value string) error {
+	if value == "" {
+		return fmt.Errorf("到期日期不能为空")
+	}
+	if _, err := time.ParseInLocation("2006-01-02", value, time.Local); err != nil {
+		return fmt.Errorf("到期日期必须是 YYYY-MM-DD 格式")
+	}
+	return nil
 }
 
 // handleListUsers 获取用户列表（按等级分组）
@@ -123,6 +141,14 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误")
 		return
 	}
+	if err := validateExpiryDate(req.ExpiryDate); err != nil {
+		errorJSON(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateEnabled(req.Enabled); err != nil {
+		errorJSON(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// 检查名称是否已存在
 	var count int64
@@ -145,8 +171,9 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 	if req.DnsResolve == "" {
 		req.DnsResolve = "default"
 	}
-	if req.Enabled == 0 {
-		req.Enabled = 1
+	enabled := 1
+	if req.Enabled != nil {
+		enabled = *req.Enabled
 	}
 
 	user := database.ProxyUser{
@@ -154,7 +181,7 @@ func (s *Server) handleCreateUser(c *gin.Context) {
 		UUID:         userUUID,
 		Level:        req.Level,
 		ExpiryDate:   req.ExpiryDate,
-		Enabled:      req.Enabled,
+		Enabled:      enabled,
 		TrafficLimit: req.TrafficLimit,
 		TrafficUsed:  0,
 		DnsResolve:   req.DnsResolve,
@@ -234,6 +261,10 @@ func (s *Server) handleUpdateUser(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, "请求参数错误")
 		return
 	}
+	if err := validateEnabled(req.Enabled); err != nil {
+		errorJSON(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// 如果有新名称，检查是否重复
 	if req.Name != "" && req.Name != user.Name {
@@ -251,18 +282,30 @@ func (s *Server) handleUpdateUser(c *gin.Context) {
 		user.Level = req.Level
 	}
 	if req.ExpiryDate != "" {
+		if err := validateExpiryDate(req.ExpiryDate); err != nil {
+			errorJSON(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		user.ExpiryDate = req.ExpiryDate
 	}
 
 	// 只在 enabled 变化时需要推送配置
-	configChanged := req.Enabled != user.Enabled
-	user.Enabled = req.Enabled
-	user.TrafficLimit = req.TrafficLimit
-	user.TrafficUsed = req.TrafficUsed
+	configChanged := req.Enabled != nil && *req.Enabled != user.Enabled
+	if req.Enabled != nil {
+		user.Enabled = *req.Enabled
+	}
+	if req.TrafficLimit != nil {
+		user.TrafficLimit = *req.TrafficLimit
+	}
+	if req.TrafficUsed != nil {
+		user.TrafficUsed = *req.TrafficUsed
+	}
 	if req.DnsResolve != "" {
 		user.DnsResolve = req.DnsResolve
 	}
-	user.Notes = req.Notes
+	if req.Notes != nil {
+		user.Notes = *req.Notes
+	}
 
 	if err := database.GetDB().Save(&user).Error; err != nil {
 		errorJSON(c, http.StatusInternalServerError, "保存失败")
@@ -292,6 +335,8 @@ func (s *Server) handleDeleteUser(c *gin.Context) {
 
 	// 先删除用户的节点关联
 	database.GetDB().Unscoped().Where("user_id = ?", id).Delete(&database.NodeUserRelation{})
+	// 清理落地出站使用的额外 UUID，避免删除用户后留下孤儿凭据。
+	database.GetDB().Unscoped().Where("user_id = ?", id).Delete(&database.UserExtraUUID{})
 
 	result := database.GetDB().Unscoped().Delete(&database.ProxyUser{}, id)
 	if result.Error != nil {

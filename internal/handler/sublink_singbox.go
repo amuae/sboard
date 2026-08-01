@@ -55,7 +55,10 @@ func generateSingBoxSubscription(servers []ServerWithNodes, nodeConfigs map[uint
 				}
 			}
 			for _, ob := range swn.Outbounds {
-				extraUUID := user.GetExtraUUID(ob.Slot)
+				extraUUID, err := user.EnsureExtraUUID(ob.Slot)
+				if err != nil {
+					return "", fmt.Errorf("生成落地出站 UUID 失败: %w", err)
+				}
 				if extraUUID == "" {
 					continue
 				}

@@ -2,9 +2,47 @@ package handler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sboard-go/sboard/internal/database"
 )
+
+func TestIsExpiryDatePassedKeepsExpiryDayValid(t *testing.T) {
+	location := time.FixedZone("UTC+8", 8*60*60)
+	tests := []struct {
+		name       string
+		expiryDate string
+		now        time.Time
+		want       bool
+	}{
+		{
+			name:       "expiry date is still valid in the morning",
+			expiryDate: "2026-08-01",
+			now:        time.Date(2026, 8, 1, 9, 0, 0, 0, location),
+			want:       false,
+		},
+		{
+			name:       "the next day is expired",
+			expiryDate: "2026-08-01",
+			now:        time.Date(2026, 8, 2, 0, 1, 0, 0, location),
+			want:       true,
+		},
+		{
+			name:       "invalid date is not rejected implicitly",
+			expiryDate: "not-a-date",
+			now:        time.Date(2026, 8, 2, 0, 1, 0, 0, location),
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isExpiryDatePassed(tt.expiryDate, tt.now); got != tt.want {
+				t.Fatalf("isExpiryDatePassed(%q, %v) = %v, want %v", tt.expiryDate, tt.now, got, tt.want)
+			}
+		})
+	}
+}
 
 // ========== getEffectiveDnsResolve tests ==========
 
@@ -16,43 +54,43 @@ func TestGetEffectiveDnsResolve(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "user has explicit ipv4, server has ipv6 — uses user",
+			name:     "user has explicit ipv4, server has ipv6 — uses user",
 			user:     &database.ProxyUser{DnsResolve: "ipv4"},
 			server:   &database.Server{DnsResolve: "ipv6"},
 			expected: "ipv4",
 		},
 		{
-			name: "user has default, server has ipv6 — falls back to server",
+			name:     "user has default, server has ipv6 — falls back to server",
 			user:     &database.ProxyUser{DnsResolve: "default"},
 			server:   &database.Server{DnsResolve: "ipv6"},
 			expected: "ipv6",
 		},
 		{
-			name: "user has empty string, server has ipv4 — falls back to server",
+			name:     "user has empty string, server has ipv4 — falls back to server",
 			user:     &database.ProxyUser{DnsResolve: ""},
 			server:   &database.Server{DnsResolve: "ipv4"},
 			expected: "ipv4",
 		},
 		{
-			name: "user has ipv6, server has ipv4 — uses user",
+			name:     "user has ipv6, server has ipv4 — uses user",
 			user:     &database.ProxyUser{DnsResolve: "ipv6"},
 			server:   &database.Server{DnsResolve: "ipv4"},
 			expected: "ipv6",
 		},
 		{
-			name: "both empty — returns empty from server",
+			name:     "both empty — returns empty from server",
 			user:     &database.ProxyUser{DnsResolve: ""},
 			server:   &database.Server{DnsResolve: ""},
 			expected: "",
 		},
 		{
-			name: "both default — returns server default",
+			name:     "both default — returns server default",
 			user:     &database.ProxyUser{DnsResolve: "default"},
 			server:   &database.Server{DnsResolve: "default"},
 			expected: "default",
 		},
 		{
-			name: "user has ipv4, server empty — uses user",
+			name:     "user has ipv4, server empty — uses user",
 			user:     &database.ProxyUser{DnsResolve: "ipv4"},
 			server:   &database.Server{DnsResolve: ""},
 			expected: "ipv4",
@@ -64,6 +102,87 @@ func TestGetEffectiveDnsResolve(t *testing.T) {
 			got := getEffectiveDnsResolve(tt.user, tt.server)
 			if got != tt.expected {
 				t.Errorf("getEffectiveDnsResolve() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestInitProxyBuildParamsUsesConfiguredNodeDomain(t *testing.T) {
+	node := &database.InboundNode{Port: 443}
+	user := &database.ProxyUser{UUID: "user-uuid", Level: 1, DnsResolve: "default"}
+
+	tests := []struct {
+		name     string
+		userDNS  string
+		server   database.Server
+		nc       *database.ServerNodeConfig
+		wantHost string
+		wantPort int
+	}{
+		{
+			name: "server domain selected by none strategy",
+			server: database.Server{
+				Name:       "home",
+				Host:       "203.0.113.10",
+				NodeDomain: "home.example.com",
+				DnsResolve: "none",
+			},
+			wantHost: "home.example.com",
+			wantPort: 443,
+		},
+		{
+			name:    "explicit ipv4 overrides server domain",
+			userDNS: "ipv4",
+			server: database.Server{
+				Name:       "home",
+				Host:       "203.0.113.10",
+				HostIPv6:   "2001:db8::10",
+				NodeDomain: "home.example.com",
+				DnsResolve: "none",
+			},
+			nc:       nil,
+			wantHost: "203.0.113.10",
+			wantPort: 443,
+		},
+		{
+			name: "explicit ipv6 selects server ipv6",
+			server: database.Server{
+				Name:       "home",
+				Host:       "203.0.113.10",
+				HostIPv6:   "2001:db8::10",
+				NodeDomain: "home.example.com",
+				DnsResolve: "ipv6",
+			},
+			wantHost: "2001:db8::10",
+			wantPort: 443,
+		},
+		{
+			name: "forwarding address has highest priority",
+			server: database.Server{
+				Name:       "home",
+				Host:       "203.0.113.10",
+				NodeDomain: "home.example.com",
+				DnsResolve: "none",
+			},
+			nc: &database.ServerNodeConfig{
+				ForwardEnabled: true,
+				ForwardHost:    "forward.example.com",
+				ForwardPort:    8443,
+			},
+			wantHost: "forward.example.com",
+			wantPort: 8443,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			currentUser := *user
+			if tt.userDNS != "" {
+				currentUser.DnsResolve = tt.userDNS
+			}
+			got := initProxyBuildParams(&tt.server, node, tt.nc, &currentUser, 0, nil)
+			if got.Host != tt.wantHost || got.Port != tt.wantPort {
+				t.Fatalf("initProxyBuildParams() = host %q port %d, want host %q port %d", got.Host, got.Port, tt.wantHost, tt.wantPort)
 			}
 		})
 	}

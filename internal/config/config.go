@@ -4,6 +4,7 @@ import (
 	crand "crypto/rand"
 	mrand "math/rand"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -77,10 +78,54 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// LoadOrCreate loads an existing config or persists a new default config.
+// Persisting the generated JWT secret keeps sessions and derived credentials
+// stable across restarts.
+func LoadOrCreate(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+
+		cfg := Default()
+		if err := cfg.Save(path); err != nil {
+			return nil, err
+		}
+		return cfg, nil
+	}
+
+	cfg := Default()
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, err
+	}
+
+	// Older or hand-written configs may omit the secret. Save the generated
+	// value once instead of silently rotating it on every process start.
+	var persisted struct {
+		Security struct {
+			JWTSecret string `yaml:"jwt_secret"`
+		} `yaml:"security"`
+	}
+	if err := yaml.Unmarshal(data, &persisted); err != nil {
+		return nil, err
+	}
+	if persisted.Security.JWTSecret == "" {
+		if err := cfg.Save(path); err != nil {
+			return nil, err
+		}
+	}
+
+	return cfg, nil
+}
+
 // Save 保存配置到文件
 func (c *Config) Save(path string) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0600)
