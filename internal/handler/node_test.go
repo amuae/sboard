@@ -94,6 +94,7 @@ func TestBuildSingBoxInboundIncludesRealityWithoutTlsFlag(t *testing.T) {
 		Protocol:       "vless",
 		Listen:         "::",
 		Port:           443,
+		ServerName:     "certificate.example.com",
 		RealityEnabled: true,
 		RealityServer:  "www.example.com",
 		RealityPrivkey: "private-key",
@@ -121,6 +122,9 @@ func TestBuildSingBoxInboundIncludesRealityWithoutTlsFlag(t *testing.T) {
 	if reality["private_key"] != node.RealityPrivkey {
 		t.Errorf("private_key = %v, want %q", reality["private_key"], node.RealityPrivkey)
 	}
+	if tls["server_name"] != node.RealityServer {
+		t.Errorf("server_name = %v, want Reality server %q", tls["server_name"], node.RealityServer)
+	}
 
 	serverInbound := buildSingBoxInboundWithExtraUUIDs(
 		node,
@@ -145,5 +149,8 @@ func TestBuildSingBoxInboundIncludesRealityWithoutTlsFlag(t *testing.T) {
 	}
 	if _, ok := serverTLS["reality"].(map[string]interface{}); !ok {
 		t.Fatalf("reality missing from server inbound: %s", serverData)
+	}
+	if serverTLS["server_name"] != node.RealityServer {
+		t.Errorf("server server_name = %v, want Reality server %q", serverTLS["server_name"], node.RealityServer)
 	}
 }

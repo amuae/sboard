@@ -236,9 +236,13 @@ func buildSingBoxInbound(node *database.InboundNode, users []NodeUser) *OrderedM
 	// TLS 配置
 	// hysteria2/naive 协议必须启用 TLS（hysteria2 强制要求 TLS 加密）
 	if ((node.TlsEnabled || node.RealityEnabled) && node.Protocol != "shadowsocks") || node.Protocol == "naive" || node.Protocol == "hysteria2" {
+		serverName := node.ServerName
+		if node.RealityEnabled && node.RealityServer != "" {
+			serverName = node.RealityServer
+		}
 		tls := map[string]interface{}{
 			"enabled":     true,
-			"server_name": node.ServerName,
+			"server_name": serverName,
 		}
 
 		if node.RealityEnabled && node.RealityPrivkey != "" {
@@ -610,9 +614,13 @@ func buildSingBoxInboundWithExtraUUIDs(node *database.InboundNode, relations []N
 	// TLS 配置
 	// hysteria2/naive 协议必须启用 TLS（hysteria2 强制要求 TLS 加密）
 	if ((node.TlsEnabled || node.RealityEnabled) && node.Protocol != "shadowsocks") || node.Protocol == "naive" || node.Protocol == "hysteria2" {
+		serverName := node.ServerName
+		if node.RealityEnabled && node.RealityServer != "" {
+			serverName = node.RealityServer
+		}
 		tls := map[string]interface{}{
 			"enabled":     true,
-			"server_name": node.ServerName,
+			"server_name": serverName,
 		}
 
 		if node.RealityEnabled && node.RealityPrivkey != "" {
