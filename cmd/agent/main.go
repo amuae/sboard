@@ -431,9 +431,7 @@ func (a *Agent) handleMessage(msg *Message) {
 	case MsgTypeDeployDir:
 		resp, err = a.handleDeployDir(msg)
 	case MsgTypeSyncConfig:
-		// 配置同步为单向通知，不返回响应
-		a.handleSyncConfig(msg)
-		return
+		resp, err = a.handleSyncConfig(msg)
 	case MsgTypeRestart:
 		resp, err = a.handleRestart(msg)
 	case MsgTypeDeployCore:
@@ -800,7 +798,7 @@ func (a *Agent) handleDeployDir(msg *Message) (*Message, error) {
 	}, nil
 }
 
-func (a *Agent) handleSyncConfig(msg *Message) {
+func (a *Agent) handleSyncConfig(msg *Message) (*Message, error) {
 	var data struct {
 		ConfigType string `json:"config_type"`
 		Content    string `json:"content"`
@@ -808,8 +806,7 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 		TargetPath string `json:"target_path"` // 目标路径，如 /opt/sboard/sing-box
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
-		log.Printf("解析配置同步消息失败: %v", err)
-		return
+		return nil, fmt.Errorf("解析配置同步消息失败: %w", err)
 	}
 
 	// 确定配置路径：优先使用面板传入的 TargetPath，回退到本地 ConfigDir
@@ -824,8 +821,7 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 	allowedDirs := []string{a.config.ConfigDir, a.config.CorePath, filepath.Dir(a.config.CorePath), "/opt/sboard"}
 	safeDir, err := safeResolvePath(configDir, allowedDirs)
 	if err != nil {
-		log.Printf("配置目录不安全: %v", err)
-		return
+		return nil, fmt.Errorf("配置目录不安全: %w", err)
 	}
 	coreType := strings.ToLower(data.ConfigType)
 	switch coreType {
@@ -833,8 +829,7 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 		configPath = filepath.Join(safeDir, "config.json")
 		serviceName = "sing-box"
 	default:
-		log.Printf("未知配置类型: %s", data.ConfigType)
-		return
+		return nil, fmt.Errorf("未知配置类型: %s", data.ConfigType)
 	}
 
 	corePath := resolveCoreBinary(a.config.CorePath, safeDir, coreType)
@@ -843,7 +838,7 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 	})
 	if err != nil {
 		log.Printf("配置校验或安装失败，保留当前配置: %v", err)
-		return
+		return nil, err
 	}
 
 	// 计算配置版本
@@ -858,15 +853,24 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 			log.Printf("重启服务失败，正在恢复旧配置: %v", err)
 			if rollbackErr := rollbackInstalledConfig(installed); rollbackErr != nil {
 				log.Printf("恢复旧配置失败: %v", rollbackErr)
-				return
+				return nil, fmt.Errorf("重启失败: %w；恢复旧配置失败: %v", err, rollbackErr)
 			}
 			if restartErr := serviceManager.RestartService(serviceName); restartErr != nil {
 				log.Printf("恢复旧配置后重启服务失败: %v", restartErr)
+				return nil, fmt.Errorf("重启失败: %w；恢复旧配置后重启失败: %v", err, restartErr)
 			}
+			return nil, fmt.Errorf("重启失败: %w，已恢复旧配置", err)
 		} else {
 			log.Printf("服务已重启: %s", serviceName)
 		}
 	}
+
+	respData, _ := json.Marshal(map[string]interface{}{
+		"success":        true,
+		"path":           configPath,
+		"config_version": configVersion,
+	})
+	return &Message{Type: MsgTypeCommandResp, Data: respData}, nil
 }
 
 func (a *Agent) handleRestart(msg *Message) (*Message, error) {
