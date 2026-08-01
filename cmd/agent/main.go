@@ -837,19 +837,12 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 		return
 	}
 
-	// 备份旧配置（带时间戳，避免覆盖之前的备份）
-	if _, err := os.Stat(configPath); err == nil {
-		backupPath := configPath + ".bak." + time.Now().Format("20060102150405")
-		os.Rename(configPath, backupPath)
-	}
-
-	// 写入新配置
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		log.Printf("创建配置目录失败: %v", err)
-		return
-	}
-	if err := os.WriteFile(configPath, []byte(data.Content), 0600); err != nil {
-		log.Printf("写入配置文件失败: %v", err)
+	corePath := resolveCoreBinary(a.config.CorePath, safeDir, coreType)
+	installed, err := installValidatedConfig(configPath, []byte(data.Content), func(stagedPath string) error {
+		return validateCoreConfig(corePath, stagedPath, safeDir)
+	})
+	if err != nil {
+		log.Printf("配置校验或安装失败，保留当前配置: %v", err)
 		return
 	}
 
@@ -862,7 +855,14 @@ func (a *Agent) handleSyncConfig(msg *Message) {
 	// 重启服务 (使用平台特定的服务管理器)
 	if data.Restart {
 		if err := serviceManager.RestartService(serviceName); err != nil {
-			log.Printf("重启服务失败: %v", err)
+			log.Printf("重启服务失败，正在恢复旧配置: %v", err)
+			if rollbackErr := rollbackInstalledConfig(installed); rollbackErr != nil {
+				log.Printf("恢复旧配置失败: %v", rollbackErr)
+				return
+			}
+			if restartErr := serviceManager.RestartService(serviceName); restartErr != nil {
+				log.Printf("恢复旧配置后重启服务失败: %v", restartErr)
+			}
 		} else {
 			log.Printf("服务已重启: %s", serviceName)
 		}
